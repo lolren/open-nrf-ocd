@@ -231,13 +231,20 @@ static nrf_ocd_error_t cortex_m_wait_halted(nrf_ap_t *ap, uint32_t timeout_ms) {
     for (uint32_t elapsed = 0; elapsed < timeout_ms; elapsed++) {
         uint32_t dhcsr;
         nrf_ocd_error_t err = nrf_mem_read32(ap, DHCSR, &dhcsr);
-        if (err != NRF_OCD_OK)
+        if (err != NRF_OCD_OK) {
+            NRF_DBG("cortex_m_wait_halted: DHCSR read error at %ums: %s",
+                    elapsed, nrf_ocd_error_str(err));
             return err;
+        }
         if (dhcsr & DHCSR_S_HALT)
             return NRF_OCD_OK;
+        if (elapsed < 100) {
+            NRF_DBG("cortex_m_wait_halted: elapsed=%ums DHCSR=0x%08X", elapsed, dhcsr);
+        }
         sleep_us(1000);
     }
 
+    NRF_DBG("cortex_m_wait_halted: timed out after %ums", timeout_ms);
     return NRF_OCD_ERR_TIMEOUT;
 }
 
@@ -299,11 +306,21 @@ static nrf_ocd_error_t call_flash_function(nrf_flash_t *flash,
 
     err = cortex_m_wait_halted(ap, timeout_ms);
     if (err != NRF_OCD_OK) {
-        /* One last check — the core may have halted just after our last poll */
+        /* One last check — the core may have halted just after our last poll,
+         * or a transfer error may have returned stale data. */
         uint32_t dhcsr;
-        if (nrf_mem_read32(ap, DHCSR, &dhcsr) == NRF_OCD_OK && (dhcsr & DHCSR_S_HALT)) {
-            NRF_DBG("Core halted on final check after timeout");
+        nrf_ocd_error_t rerr = nrf_mem_read32(ap, DHCSR, &dhcsr);
+        if (rerr == NRF_OCD_OK) {
+            if (dhcsr & DHCSR_S_HALT) {
+                NRF_DBG("Core halted on final check after timeout");
+            } else {
+                NRF_DBG("Timeout: DHCSR=0x%08X (S_HALT not set)", dhcsr);
+                cortex_m_halt(ap);
+                NRF_ERR("Flash function call timed out");
+                return err;
+            }
         } else {
+            NRF_DBG("Timeout: final DHCSR read failed: %s", nrf_ocd_error_str(rerr));
             cortex_m_halt(ap);
             NRF_ERR("Flash function call timed out");
             return err;
