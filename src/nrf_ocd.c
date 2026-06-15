@@ -259,6 +259,10 @@ int main(int argc, char *argv[]) {
     switch (action) {
         case ACTION_INFO:
             err = nrf_programmer_info(&prog);
+            if (err != NRF_OCD_OK) {
+                fprintf(stderr, "Error: target mismatch or connection error\n");
+                return 1;
+            }
             break;
 
         case ACTION_ERASE:
@@ -644,6 +648,17 @@ nrf_ocd_error_t nrf_programmer_info(nrf_programmer_t *prog) {
             memcpy(variant_str, &variant, 4);
             variant_str[4] = '\0';
             NRF_INFO("Part: nRF%03X %s", part, variant_str);
+            /* Detect board mismatch from USB probe descriptor */
+            const char *expected = prog->target->name;
+            const char *product = prog->probe->product;
+            int is_lm20a = (strstr(product, "LM20") != NULL || strstr(product, "lm20") != NULL);
+            int is_l15 = (strstr(product, "nRF54L15") != NULL || strstr(product, "nrf54l15") != NULL);
+            if ((!strcmp(expected, "nrf54l15") && is_lm20a) ||
+                (!strcmp(expected, "nrf54lm20a") && is_l15)) {
+                NRF_ERR("BOARD MISMATCH: selected=%s, probe=%s", expected, product);
+                NRF_ERR("Use -t %s for this board.", is_lm20a ? "nrf54lm20a" : "nrf54l15");
+                return NRF_OCD_ERR_HEX_PARSE;
+            }
         }
     } else {
         NRF_DBG("UICR part info not available (core may be running)");
