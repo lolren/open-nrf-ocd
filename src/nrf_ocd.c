@@ -93,6 +93,7 @@ int main(int argc, char *argv[]) {
     bool auto_unlock = false;
     bool do_erase = false;
     bool no_reset __attribute__((unused)) = false;
+    bool do_reset = false;
     bool has_sector = false;
 
     static struct option long_options[] = {
@@ -137,7 +138,7 @@ int main(int argc, char *argv[]) {
                     return 1;
                 }
                 break;
-            case 'R': action = ACTION_RESET; break;
+            case 'R': if (action == ACTION_NONE) action = ACTION_RESET; else do_reset = true; break;
             case 's':
                 if (!parse_u32_arg(optarg, &sector_addr)) {
                     fprintf(stderr, "Error: invalid sector address '%s'\n", optarg);
@@ -307,6 +308,16 @@ int main(int argc, char *argv[]) {
         default:
             err = NRF_OCD_OK;
             break;
+    }
+
+    /* Reset if requested and action completed successfully */
+    if (do_reset && !no_reset && err == NRF_OCD_OK &&
+        (action == ACTION_FLASH || action == ACTION_ERASE)) {
+        nrf_ocd_error_t rst_err = nrf_programmer_reset(&prog);
+        if (rst_err == NRF_OCD_OK)
+            NRF_INFO("Target reset after programming");
+        else
+            NRF_WARN("Post-flash reset failed: %s", nrf_ocd_error_str(rst_err));
     }
 
     nrf_programmer_close(&prog);
