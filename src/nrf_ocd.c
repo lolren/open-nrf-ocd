@@ -442,6 +442,7 @@ nrf_ocd_error_t nrf_programmer_init(nrf_programmer_t *prog, nrf_probe_t *probe,
         }
     }
 
+    if (err != NRF_OCD_OK) goto fail;
     return NRF_OCD_OK;
 
 fail:
