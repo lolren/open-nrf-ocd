@@ -1,0 +1,34 @@
+# CMakeLists.txt for Windows (MinGW cross-compilation)
+# Usage:
+#   cmake -B build_win -S . -DCMAKE_TOOLCHAIN_FILE=mingw64.cmake
+#   cmake --build build_win
+
+cmake_minimum_required(VERSION 3.16)
+project(nrf_ocd C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# Source files — use Windows native USB backend (zero external deps)
+set(SOURCES
+    src/nrf_ocd.c
+    src/usb_backend_win.c
+    src/cmsis_dap.c
+    src/coresight.c
+    src/flash_algo.c
+    src/intelhex.c
+    src/log.c
+)
+
+add_executable(nrf_ocd ${SOURCES})
+
+target_include_directories(nrf_ocd PRIVATE include)
+target_link_libraries(nrf_ocd PRIVATE
+    -lsetupapi -lhid -lwinusb
+    -static-libgcc -static
+)
+target_compile_options(nrf_ocd PRIVATE -Wall -Wextra)
+target_compile_definitions(nrf_ocd PRIVATE _WIN32_WINNT=0x0601)
+
+# Output as .exe with no console window (optional: use -mwindows for GUI)
+set_target_properties(nrf_ocd PROPERTIES SUFFIX ".exe")
