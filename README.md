@@ -463,13 +463,35 @@ open_nrf_ocd/
 
 ## License
 
-MIT License — see LICENSE file.
+This project is licensed under the MIT License.
 
-## Credits
+### Third-Party Components
 
-Built as a portable replacement for [pyOCD](https://github.com/pyocd/pyOCD),
-the Python-based Cortex-M debugger. Flash algorithms and CTRL-AP sequences
-derived from pyOCD's Nordic target support.
+The nRF54 flash algorithms (`src/flash_algo.c`) and CTRL-AP mass erase sequences
+(`src/coresight.c`) were derived from [pyOCD](https://github.com/pyocd/pyOCD),
+which is licensed under the Apache License 2.0:
+
+```
+Copyright (c) 2010-2023 Nordic Semiconductor ASA
+Copyright (c) 2006-2025 Arm Limited
+Copyright (c) 2019 Monadnock Systems Ltd.
+
+Licensed under the Apache License, Version 2.0
+http://www.apache.org/licenses/LICENSE-2.0
+```
+
+## Why This Exists
+
+This tool was created for the [nRF54 Arduino Core](https://github.com/lolren/nrf54-arduino-core)
+to eliminate the need to ship pyOCD (and its 50+ Python dependencies) as part of
+the Arduino boards package. pyOCD is an excellent debugger, but bundling a full
+Python environment with pip dependencies per platform is impractical for an
+Arduino core distribution.
+
+`nrf_ocd` provides the same flash programming functionality as a single,
+self-contained native binary with zero runtime dependencies on Windows and
+minimal system libraries on Linux/macOS. This makes it suitable for bundling
+directly in the Arduino core's `tools/` directory.
 
 ---
 
