@@ -171,9 +171,7 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     if (err != NRF_OCD_OK)
         return err;
 
-#ifndef _WIN32
     bool dap_info_bad = false;
-#endif
 
     err = nrf_dap_info_int(dap, INFO_MAX_PACKET_SIZE, &val);
     if (err != NRF_OCD_OK) {
@@ -210,11 +208,15 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     NRF_INFO("Packet size: %d, Packet count: %d, Capabilities: 0x%02X",
              dap->packet_size, dap->packet_count, dap->capabilities);
 
+#ifdef _WIN32
+    (void)dap_info_bad;
+#endif
+
+#ifndef _WIN32
     /* Retry logic for v2 bulk endpoints that get stuck on XIAO SAMD11 bridge.
      * The SAMD11 bridge can leave v2 bulk endpoints in a non-responsive state
      * after mass erase. Closing and reopening the probe with a delay often
      * resets the endpoint state. */
-#ifndef _WIN32
     if (probe->is_v2 && dap_info_bad) {
         NRF_WARN("v2 bulk not responding, retrying with fresh connection...");
         nrf_probe_close(probe);
