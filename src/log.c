@@ -63,6 +63,7 @@ const char *nrf_ocd_error_str(nrf_ocd_error_t err) {
         case NRF_OCD_ERR_HEX_PARSE:      return "Intel HEX parse error";
         case NRF_OCD_ERR_MEMORY:         return "Memory allocation failed";
         case NRF_OCD_ERR_TIMEOUT:        return "Timeout";
+        case NRF_OCD_ERR_TARGET_MISMATCH: return "Target mismatch";
         default:                         return "Unknown error";
     }
 }

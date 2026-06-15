@@ -31,6 +31,7 @@ typedef enum {
     NRF_OCD_ERR_HEX_PARSE,
     NRF_OCD_ERR_MEMORY,
     NRF_OCD_ERR_TIMEOUT,
+    NRF_OCD_ERR_TARGET_MISMATCH,
 } nrf_ocd_error_t;
 
 const char *nrf_ocd_error_str(nrf_ocd_error_t err);

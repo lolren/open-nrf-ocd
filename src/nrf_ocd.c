@@ -310,6 +310,9 @@ int main(int argc, char *argv[]) {
             break;
     }
 
+    /* Clean up flash before reset (algorithm needs halted CPU) */
+    nrf_flash_cleanup(&prog.flash);
+
     /* Reset if requested and action completed successfully */
     if (do_reset && !no_reset && err == NRF_OCD_OK &&
         (action == ACTION_FLASH || action == ACTION_ERASE)) {
@@ -320,7 +323,7 @@ int main(int argc, char *argv[]) {
             NRF_WARN("Post-flash reset failed: %s", nrf_ocd_error_str(rst_err));
     }
 
-    nrf_programmer_close(&prog);
+    nrf_dap_close(&prog.dap);
     nrf_probe_free_list(&probes, count);
 
     if (err != NRF_OCD_OK) {
@@ -425,6 +428,40 @@ nrf_ocd_error_t nrf_programmer_init(nrf_programmer_t *prog, nrf_probe_t *probe,
     if (err != NRF_OCD_OK) {
         NRF_ERR("Failed to read MEM-AP CSW: %s", nrf_ocd_error_str(err));
         goto fail;
+    }
+
+    /* Validate target: read UICR part number and verify it matches
+     * the requested target. Prevents flashing wrong firmware to wrong chip. */
+    {
+        uint32_t part;
+        err = nrf_mem_read32(&prog->ap, 0x00FFC31C, &part);
+        if (err == NRF_OCD_OK) {
+            bool ok = false;
+            const char *expected = "unknown";
+
+            if (target == &nrf54l15_target) {
+                /* nRF54L15: part 0x54B15 */
+                ok = (part == 0x00054B15);
+                expected = "nRF54L15 (0x00054B15)";
+            } else if (target == &nrf54lm20a_target) {
+                /* nRF54LM20A: part 0x54BC20A */
+                ok = (part == 0x054BC20A);
+                expected = "nRF54LM20A (0x054BC20A)";
+            }
+
+            if (!ok) {
+                NRF_ERR("Target mismatch: expected %s, but chip reports part 0x%08X",
+                        expected, part);
+                NRF_ERR("Use -t <target> to select the correct target type.");
+                err = NRF_OCD_ERR_TARGET_MISMATCH;
+                goto fail;
+            }
+            NRF_DBG("Target verified: part 0x%08X matches %s", part, target->name);
+        } else {
+            /* UICR read may fail if core is running/locked — warn but continue */
+            NRF_WARN("Cannot read UICR part number (core may be running). "
+                     "Target verification skipped.");
+        }
     }
 
     /* ROM table (fixed for nRF54) */
