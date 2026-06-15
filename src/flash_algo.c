@@ -231,20 +231,13 @@ static nrf_ocd_error_t cortex_m_wait_halted(nrf_ap_t *ap, uint32_t timeout_ms) {
     for (uint32_t elapsed = 0; elapsed < timeout_ms; elapsed++) {
         uint32_t dhcsr;
         nrf_ocd_error_t err = nrf_mem_read32(ap, DHCSR, &dhcsr);
-        if (err != NRF_OCD_OK) {
-            NRF_DBG("cortex_m_wait_halted: DHCSR read error at %ums: %s",
-                    elapsed, nrf_ocd_error_str(err));
+        if (err != NRF_OCD_OK)
             return err;
-        }
         if (dhcsr & DHCSR_S_HALT)
             return NRF_OCD_OK;
-        if (elapsed < 100) {
-            NRF_DBG("cortex_m_wait_halted: elapsed=%ums DHCSR=0x%08X", elapsed, dhcsr);
-        }
         sleep_us(1000);
     }
 
-    NRF_DBG("cortex_m_wait_halted: timed out after %ums", timeout_ms);
     return NRF_OCD_ERR_TIMEOUT;
 }
 
@@ -303,6 +296,11 @@ static nrf_ocd_error_t call_flash_function(nrf_flash_t *flash,
     err = cortex_m_resume(ap);
     if (err != NRF_OCD_OK)
         return err;
+
+    /* Small delay to let the core start executing before we poll.
+     * After resume, the first DHCSR read can sometimes return stale
+     * pre-resume data on nRF54, causing a false timeout. */
+    sleep_us(100);
 
     err = cortex_m_wait_halted(ap, timeout_ms);
     if (err != NRF_OCD_OK) {

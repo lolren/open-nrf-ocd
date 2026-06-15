@@ -8,14 +8,10 @@
  */
 
 #include "nrf_ocd.h"
+#include "platform.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#ifndef _WIN32
-#include <hidapi.h>
-#endif
-/* Windows fallback: hid_open_path for HID v1 fallback is only used on non-Windows.
- * Windows uses usb_backend_win.c which is included via the build system. */
 
 /* ==================== CMSIS-DAP Command IDs ==================== */
 
@@ -175,10 +171,15 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     if (err != NRF_OCD_OK)
         return err;
 
+#ifndef _WIN32
+    bool dap_info_bad = false;
+#endif
+
     err = nrf_dap_info_int(dap, INFO_MAX_PACKET_SIZE, &val);
     if (err != NRF_OCD_OK) {
         NRF_WARN("Failed to get max packet size, using default 64");
         dap->packet_size = 64;
+        dap_info_bad = true;
     } else {
         dap->packet_size = val;
     }
@@ -186,6 +187,7 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     err = nrf_dap_info_int(dap, INFO_MAX_PACKET_COUNT, &val);
     if (err != NRF_OCD_OK) {
         dap->packet_count = 1;
+        dap_info_bad = true;
     } else {
         dap->packet_count = val;
     }
@@ -193,6 +195,7 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     err = nrf_dap_info_int(dap, INFO_CAPABILITIES, &val);
     if (err != NRF_OCD_OK) {
         dap->capabilities = 0;
+        dap_info_bad = true;
     } else {
         dap->capabilities = val;
     }
@@ -207,39 +210,45 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     NRF_INFO("Packet size: %d, Packet count: %d, Capabilities: 0x%02X",
              dap->packet_size, dap->packet_count, dap->capabilities);
 
-    /* HID v1 fallback (non-Windows only — Windows uses its own native backend).
-     * If v2 bulk endpoints are stuck (SAMD11 bridge state after mass erase),
-     * retry via the HID interface which handles re-enumeration differently. */
+    /* Retry logic for v2 bulk endpoints that get stuck on XIAO SAMD11 bridge.
+     * The SAMD11 bridge can leave v2 bulk endpoints in a non-responsive state
+     * after mass erase. Closing and reopening the probe with a delay often
+     * resets the endpoint state. */
 #ifndef _WIN32
-    if (probe->is_v2 && dap->capabilities == 0 && dap->packet_size == 64 &&
-        dap->packet_count == 1 && probe->path[0] != '\0') {
-        NRF_WARN("v2 bulk not responding, falling back to HID v1");
+    if (probe->is_v2 && dap_info_bad) {
+        NRF_WARN("v2 bulk not responding, retrying with fresh connection...");
         nrf_probe_close(probe);
-        probe->is_v2 = false;
-        probe->report_in_size = 64;
-        probe->report_out_size = 64;
-        {
-            void *hid_dev = hid_open_path(probe->path);
-            if (!hid_dev) {
-                NRF_ERR("Failed to re-open probe as HID v1");
-                return NRF_OCD_ERR_USB_OPEN;
-            }
-            probe->hid_handle = hid_dev;
-        }
+#ifdef _WIN32
+        Sleep(1000);
+#else
+        usleep(1000000);
+#endif
+        err = nrf_probe_open(probe);
+        if (err != NRF_OCD_OK)
+            return err;
 
+        dap_info_bad = false;
         dap->packet_size = 64;
         dap->packet_count = 1;
         dap->capabilities = 0;
 
         err = nrf_dap_info_int(dap, INFO_MAX_PACKET_SIZE, &val);
         if (err == NRF_OCD_OK) dap->packet_size = val;
+        else dap_info_bad = true;
         err = nrf_dap_info_int(dap, INFO_MAX_PACKET_COUNT, &val);
         if (err == NRF_OCD_OK) dap->packet_count = val;
+        else dap_info_bad = true;
         err = nrf_dap_info_int(dap, INFO_CAPABILITIES, &val);
         if (err == NRF_OCD_OK) dap->capabilities = val;
+        else dap_info_bad = true;
 
-        NRF_INFO("HID v1 fallback: packet size=%d, count=%d, caps=0x%02X",
+        NRF_INFO("v2 retry: packet size=%d, count=%d, caps=0x%02X",
                  dap->packet_size, dap->packet_count, dap->capabilities);
+
+        if (dap_info_bad) {
+            NRF_ERR("Probe still not responding. Try unplugging and re-plugging the board.");
+            return NRF_OCD_ERR_USB_OPEN;
+        }
     }
 #endif
 
