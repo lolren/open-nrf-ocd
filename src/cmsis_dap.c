@@ -11,6 +11,11 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifndef _WIN32
+#include <hidapi.h>
+#endif
+/* Windows fallback: hid_open_path for HID v1 fallback is only used on non-Windows.
+ * Windows uses usb_backend_win.c which is included via the build system. */
 
 /* ==================== CMSIS-DAP Command IDs ==================== */
 
@@ -201,6 +206,42 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     NRF_INFO("CMSIS-DAP probe: %s %s (serial: %s)", probe->vendor, probe->product, probe->serial);
     NRF_INFO("Packet size: %d, Packet count: %d, Capabilities: 0x%02X",
              dap->packet_size, dap->packet_count, dap->capabilities);
+
+    /* HID v1 fallback (non-Windows only — Windows uses its own native backend).
+     * If v2 bulk endpoints are stuck (SAMD11 bridge state after mass erase),
+     * retry via the HID interface which handles re-enumeration differently. */
+#ifndef _WIN32
+    if (probe->is_v2 && dap->capabilities == 0 && dap->packet_size == 64 &&
+        dap->packet_count == 1 && probe->path[0] != '\0') {
+        NRF_WARN("v2 bulk not responding, falling back to HID v1");
+        nrf_probe_close(probe);
+        probe->is_v2 = false;
+        probe->report_in_size = 64;
+        probe->report_out_size = 64;
+        {
+            void *hid_dev = hid_open_path(probe->path);
+            if (!hid_dev) {
+                NRF_ERR("Failed to re-open probe as HID v1");
+                return NRF_OCD_ERR_USB_OPEN;
+            }
+            probe->hid_handle = hid_dev;
+        }
+
+        dap->packet_size = 64;
+        dap->packet_count = 1;
+        dap->capabilities = 0;
+
+        err = nrf_dap_info_int(dap, INFO_MAX_PACKET_SIZE, &val);
+        if (err == NRF_OCD_OK) dap->packet_size = val;
+        err = nrf_dap_info_int(dap, INFO_MAX_PACKET_COUNT, &val);
+        if (err == NRF_OCD_OK) dap->packet_count = val;
+        err = nrf_dap_info_int(dap, INFO_CAPABILITIES, &val);
+        if (err == NRF_OCD_OK) dap->capabilities = val;
+
+        NRF_INFO("HID v1 fallback: packet size=%d, count=%d, caps=0x%02X",
+                 dap->packet_size, dap->packet_count, dap->capabilities);
+    }
+#endif
 
     return NRF_OCD_OK;
 }
