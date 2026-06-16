@@ -477,6 +477,7 @@ nrf_ocd_error_t nrf_flash_init(nrf_flash_t *flash, int operation, uint32_t addr,
 
     flash->inited = true;
     flash->operation = operation;
+    flash->erased_all = false;  /* re-init clears this so sector erase works */
     return NRF_OCD_OK;
 }
 
@@ -528,11 +529,14 @@ nrf_ocd_error_t nrf_flash_erase_all(nrf_flash_t *flash) {
     }
 
     NRF_INFO("Flash erase complete");
+    flash->erased_all = true;
     return NRF_OCD_OK;
 }
 
 nrf_ocd_error_t nrf_flash_erase_sector(nrf_flash_t *flash, uint32_t addr) {
-    if (!flash->inited || flash->operation != 1) {
+    if (!flash->inited || flash->operation != 1 || flash->erased_all) {
+        /* Re-init if not inited, wrong operation, or if erase_all was already
+         * performed (NVMC state is different after erase_all). */
         nrf_ocd_error_t err = nrf_flash_init(flash, 1, 0, 0);
         if (err != NRF_OCD_OK)
             return err;

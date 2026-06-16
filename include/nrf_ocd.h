@@ -241,6 +241,7 @@ typedef struct {
     const nrf_target_desc_t *target;
     bool prepared;
     bool inited;
+    bool erased_all;  /* set true after erase_all (sector erase must re-init) */
     uint32_t flash_size;
     int  operation;  /* 1=ERASE, 2=PROGRAM */
 } nrf_flash_t;
