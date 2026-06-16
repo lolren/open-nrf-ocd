@@ -399,6 +399,20 @@ nrf_ocd_error_t nrf_programmer_init(nrf_programmer_t *prog, nrf_probe_t *probe,
                 goto fail;
             }
 
+            /* Configure SWD for transfers (matches pyOCD connect flow) */
+            {
+                uint8_t scmd[2] = { 0x13, 0x00 };  /* SWD_Configure: turnaround=1 */
+                nrf_probe_write(prog->probe, scmd, sizeof(scmd));
+                uint8_t resp[64]; int rlen = 0;
+                nrf_probe_read(prog->probe, resp, sizeof(resp), &rlen);
+            }
+            {
+                uint8_t tcmd[7] = { 0x04, 2, 0x96, 0x00, 0x00, 0x00, 0x00 };  /* Transfer_Configure */
+                nrf_probe_write(prog->probe, tcmd, sizeof(tcmd));
+                uint8_t resp[64]; int rlen = 0;
+                nrf_probe_read(prog->probe, resp, sizeof(resp), &rlen);
+            }
+
             /* Step 4: CTRL-AP mass erase */
             NRF_INFO("Connected under reset, performing CTRL-AP mass erase...");
             err = nrf54_ctrl_mass_erase(&prog->dap);
