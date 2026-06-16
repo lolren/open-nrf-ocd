@@ -302,22 +302,26 @@ nrf_ocd_error_t nrf_mem_init_csw(nrf_ap_t *ap) {
 
     NRF_DBG("MEM-AP base CSW = 0x%08X", g_mem_csw_base);
 
-    /* Use pyOCD's exact CSW value for nRF54: 0x03000012
-     * = SIZE32 + SADDRINC + DEVICEEN + HPROT[0] + HPROT[1] + HPROT[2]
-     * HPROT bits are REQUIRED for flash access on nRF54.
-     * Do NOT use hardware default — it may have SDEVICEEN set, causing LOCKUP. */
-    g_mem_csw_base = 0x03000012U;
+    /* Read hardware default CSW. Do NOT try to write it — nRF54 MEM-AP CSW
+     * is read-only via DP-AP (write appears to succeed but value doesn't change).
+     * Instead, use the hardware default with SDEVICEEN cleared and HPROT bits set.
+     * This cached value is used for batch transfers (nrf_mem_read/write_block32). */
+    g_mem_csw_base &= ~(CSW_SDEVICEEN | CSW_HNONSEC);  /* clear secure bits (cause LOCKUP) */
+    g_mem_csw_base &= ~0x07U;                          /* clear SIZE bits */
+    g_mem_csw_base |= CSW_SIZE32;                     /* 32-bit transfers */
+    g_mem_csw_base |= CSW_SADDRINC;                   /* auto-increment address */
+    g_mem_csw_base |= 0x20U;                          /* HPROT[0] = device access */
+    g_mem_csw_base |= 0x10000000U;                    /* HPROT[1] = privileged */
+    g_mem_csw_base |= 0x20000000U;                    /* HPROT[2] = non-bufferable */
+    /* Result: 0x3000052 (matches pyOCD's 0x03000012 minus DEVICEEN which hw sets) */
 
-    err = nrf_ap_write(dap, ap_base | MEM_AP_CSW, g_mem_csw_base);
-    if (err != NRF_OCD_OK) {
-        NRF_WARN("MEM-AP CSW init write failed: %s", nrf_ocd_error_str(err));
-        return err;
-    }
+    /* Invalidate DP-SELECT cache */
+    dap->select_valid = false;
 
-    /* Re-read to verify */
+    /* Re-read to log actual hardware value */
     uint32_t verify;
     err = nrf_ap_read(dap, ap_base | MEM_AP_CSW, &verify);
-    NRF_DBG("MEM-AP CSW after init = 0x%08X", verify);
+    NRF_DBG("MEM-AP CSW hardware=0x%08X, cached=0x%08X", verify, g_mem_csw_base);
 
     return NRF_OCD_OK;
 }
