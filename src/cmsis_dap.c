@@ -167,6 +167,12 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     dap->cached_select = 0;
     dap->select_valid = false;
 
+    /* Close old probe handle if still open (e.g. from a previous failed run).
+     * Leaving it open causes stale v2 bulk data to leak into the new handle. */
+    if (probe->hid_handle) {
+        nrf_probe_close(probe);
+    }
+
     err = nrf_probe_open(probe);
     if (err != NRF_OCD_OK)
         return err;
