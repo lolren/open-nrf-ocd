@@ -367,20 +367,47 @@ nrf_ocd_error_t nrf_programmer_init(nrf_programmer_t *prog, nrf_probe_t *probe,
     if (err != NRF_OCD_OK) {
         if (prog->auto_unlock) {
             /* SWD connect failed — device may be APPROTECT-locked.
-             * Use DAP_Connect mode 0x03 (SWD with reset) which tells
-             * the probe to assert nRESET as part of connect, preventing
-             * the target from running APPROTECT firmware. Matches pyOCD. */
+             * Match pyOCD's --connect under-reset:
+             * 1. Re-open probe (fresh USB connection)
+             * 2. Assert nRESET via SWJ_PINS (probe open, DAP not connected)
+             * 3. Do DAP_Connect (CPU held in reset, can't run APPROTECT code)
+             * 4. Perform CTRL-AP mass erase
+             * 5. Release nRESET
+             * 6. Reconnect normally */
             NRF_INFO("SWD connect failed, trying connect-under-reset...");
 
-            nrf_dap_disconnect(&prog->dap);
-            err = nrf_dap_connect_under_reset(&prog->dap);
-            if (err == NRF_OCD_OK) {
-                NRF_INFO("Connected under reset, performing CTRL-AP mass erase...");
-                err = nrf54_ctrl_mass_erase(&prog->dap);
+            /* Step 1: Re-open probe (fresh USB connection) */
+            nrf_dap_close(&prog->dap);
+            usleep(200000);
+            err = nrf_dap_open(&prog->dap, prog->probe);
+            if (err != NRF_OCD_OK) goto fail;
+            err = nrf_dap_set_clock(&prog->dap, prog->clock_hz);
+            if (err != NRF_OCD_OK) goto fail;
+
+            /* Step 2: Assert nRESET via SWJ_PINS (probe open, DAP not connected) */
+            err = nrf_dap_swj_pins(&prog->dap, 0x80, 0, 0x00, 10000, NULL);
+            if (err != NRF_OCD_OK) {
+                NRF_ERR("Failed to assert nRESET");
+                goto fail;
+            }
+            usleep(50000);  /* 50ms for reset to propagate */
+
+            /* Step 3: DAP_Connect (CPU held in reset, can't run APPROTECT code) */
+            err = nrf_dap_connect(&prog->dap, 0x01);  /* SWD mode */
+            if (err != NRF_OCD_OK) {
+                NRF_ERR("DAP_Connect under reset failed");
+                goto fail;
             }
 
+            /* Step 4: CTRL-AP mass erase */
+            NRF_INFO("Connected under reset, performing CTRL-AP mass erase...");
+            err = nrf54_ctrl_mass_erase(&prog->dap);
+
+            /* Step 5: Release nRESET */
+            nrf_dap_swj_pins(&prog->dap, 0x80, 0, 0x80, 10000, NULL);
+
             if (err == NRF_OCD_OK) {
-                /* Reconnect clean after mass erase */
+                /* Step 6: Reconnect clean after mass erase */
                 nrf_dap_close(&prog->dap);
                 usleep(100000);
                 err = nrf_dap_open(&prog->dap, prog->probe);
