@@ -189,14 +189,18 @@ nrf_ocd_error_t nrf54_ctrl_mass_erase(nrf_dap_t *dap) {
      * ensures we don't reuse a stale cached value. */
     dap->select_valid = false;
 
-    /* Try to power up the DP. Ignore errors — on APPROTECT-locked
-     * nRF54, the DP may reject power-up writes but still allow
-     * CTRL-AP access. */
-    nrf_dp_write(dap, DP_CTRL_STAT, DP_CTRL_CSYSPWRUPREQ | DP_CTRL_CDBGPWRUPREQ);
-    /* Also clear any sticky errors */
+    /* Power up the DP first (required before SWD line reset). */
+    nrf_dp_write(dap, DP_CTRL_STAT,
+                 DP_CTRL_CSYSPWRUPREQ | DP_CTRL_CDBGPWRUPREQ | DP_CTRL_MASKLANE);
+
+    /* Clear any sticky errors */
     nrf_dap_write_abort(dap, DP_ABORT_DAPABORT | DP_ABORT_STKCMPCLR |
                         DP_ABORT_STKERRCLR | DP_ABORT_WDERRCLR |
                         DP_ABORT_ORUNERRCLR);
+
+    /* After DAP_Connect (without SWD connect), the DP is in a bad state.
+     * Do a SWD line reset to initialize the SWD protocol before CTRL-AP access. */
+    swd_line_reset(dap);
 
     nrf_ocd_error_t err = nrf_ap_read(dap, ctrl_base | CTRL_AP_IDR, &idr);
     if (err != NRF_OCD_OK) {
