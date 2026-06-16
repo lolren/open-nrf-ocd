@@ -275,6 +275,11 @@ static nrf_ocd_error_t call_flash_function(nrf_flash_t *flash,
     if (err != NRF_OCD_OK)
         return err;
 
+    /* Clear any sticky errors from previous operations before setting up registers. */
+    nrf_dap_write_abort(ap->dap, DP_ABORT_DAPABORT | DP_ABORT_STKCMPCLR |
+                        DP_ABORT_STKERRCLR | DP_ABORT_WDERRCLR |
+                        DP_ABORT_ORUNERRCLR);
+
     regs[count] = REG_R15; values[count] = pc | 1U; count++;
     regs[count] = REG_R0; values[count] = r0; count++;
     regs[count] = REG_R1; values[count] = r1; count++;
@@ -297,32 +302,46 @@ static nrf_ocd_error_t call_flash_function(nrf_flash_t *flash,
     if (err != NRF_OCD_OK)
         return err;
 
-    /* Small delay to let the core start executing before we poll.
-     * After resume, the first DHCSR read can sometimes return stale
-     * pre-resume data on nRF54, causing a false timeout. */
     sleep_us(100);
 
-    err = cortex_m_wait_halted(ap, timeout_ms);
-    if (err != NRF_OCD_OK) {
-        /* One last check — the core may have halted just after our last poll,
-         * or a transfer error may have returned stale data. */
+    /* Retry the flash function once if it times out.
+     * Some nRF54 flash operations (especially erase_sector after eraseAll)
+     * can have transient failures that succeed on retry. */
+    for (int retries = 0; retries < 2; retries++) {
+        err = cortex_m_wait_halted(ap, timeout_ms);
+        if (err == NRF_OCD_OK)
+            break;
+
         uint32_t dhcsr;
         nrf_ocd_error_t rerr = nrf_mem_read32(ap, DHCSR, &dhcsr);
-        if (rerr == NRF_OCD_OK) {
-            if (dhcsr & DHCSR_S_HALT) {
-                NRF_DBG("Core halted on final check after timeout");
-            } else {
-                NRF_DBG("Timeout: DHCSR=0x%08X (S_HALT not set)", dhcsr);
-                cortex_m_halt(ap);
-                NRF_ERR("Flash function call timed out");
-                return err;
-            }
-        } else {
-            NRF_DBG("Timeout: final DHCSR read failed: %s", nrf_ocd_error_str(rerr));
-            cortex_m_halt(ap);
-            NRF_ERR("Flash function call timed out");
-            return err;
+        if (rerr == NRF_OCD_OK && (dhcsr & DHCSR_S_HALT)) {
+            NRF_DBG("Core halted on final check after timeout");
+            err = NRF_OCD_OK;
+            break;
         }
+
+        if (retries == 0) {
+            NRF_DBG("Flash function timeout (DHCSR=0x%08X), retrying once...", dhcsr);
+            /* Clear sticky errors and re-halt before retrying. */
+            nrf_dap_t *dap = ap->dap;
+            nrf_dap_write_abort(dap, DP_ABORT_DAPABORT | DP_ABORT_STKCMPCLR |
+                                DP_ABORT_STKERRCLR | DP_ABORT_WDERRCLR |
+                                DP_ABORT_ORUNERRCLR);
+            cortex_m_halt(ap);
+            err = cortex_m_write_regs(ap, regs, values, count);
+            if (err != NRF_OCD_OK)
+                return err;
+            err = cortex_m_resume(ap);
+            if (err != NRF_OCD_OK)
+                return err;
+            sleep_us(100);
+        }
+    }
+
+    if (err != NRF_OCD_OK) {
+        NRF_ERR("Flash function call timed out");
+        cortex_m_halt(ap);
+        return err;
     }
 
     uint32_t ret;
