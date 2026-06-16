@@ -184,9 +184,25 @@ nrf_ocd_error_t nrf54_ctrl_mass_erase(nrf_dap_t *dap) {
     uint32_t ctrl_base = (uint32_t)2 << 24;
     uint32_t idr;
 
+    /* Invalidate DP_SELECT cache so AP#2 will be selected fresh.
+     * The DP may be in a bad state from a failed SWD connect; this
+     * ensures we don't reuse a stale cached value. */
+    dap->select_valid = false;
+
+    /* Try to power up the DP. Ignore errors — on APPROTECT-locked
+     * nRF54, the DP may reject power-up writes but still allow
+     * CTRL-AP access. */
+    nrf_dp_write(dap, DP_CTRL_STAT, DP_CTRL_CSYSPWRUPREQ | DP_CTRL_CDBGPWRUPREQ);
+    /* Also clear any sticky errors */
+    nrf_dap_write_abort(dap, DP_ABORT_DAPABORT | DP_ABORT_STKCMPCLR |
+                        DP_ABORT_STKERRCLR | DP_ABORT_WDERRCLR |
+                        DP_ABORT_ORUNERRCLR);
+
     nrf_ocd_error_t err = nrf_ap_read(dap, ctrl_base | CTRL_AP_IDR, &idr);
-    if (err != NRF_OCD_OK)
+    if (err != NRF_OCD_OK) {
+        NRF_DBG("CTRL-AP IDR read failed: %s", nrf_ocd_error_str(err));
         return err;
+    }
 
     if (idr != CTRL_AP_IDR_EXPECTED) {
         NRF_ERR("CTRL-AP IDR mismatch: expected 0x%08X, got 0x%08X", CTRL_AP_IDR_EXPECTED, idr);

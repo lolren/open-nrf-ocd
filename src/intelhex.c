@@ -178,7 +178,8 @@ nrf_ocd_error_t nrf_hex_parse(const char *filename, nrf_hex_file_t *out) {
                 break;
 
             default:
-                NRF_WARN("Unknown HEX record type 0x%02X", type);
+                /* Type 0x03 (Start Segment Address) and other non-data/non-EOF
+                 * records are safe to ignore. */
                 free(data);
                 break;
         }

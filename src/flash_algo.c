@@ -114,6 +114,10 @@ const nrf_target_desc_t nrf54lm20a_target = {
 #define DHCSR_C_HALT (1 << 1)
 #define DHCSR_S_REGRDY (1 << 16)
 #define DHCSR_S_HALT (1 << 17)
+#define DHCSR_S_SLEEP (1 << 18)
+#define DHCSR_S_LOCKUP (1 << 19)
+#define DHCSR_S_RETIRE_ST (1 << 24)
+#define DHCSR_S_RESET_ST (1 << 25)
 
 /* Debug Core Register Selector Register */
 #define DCRSR     0xE000EDF4
@@ -148,11 +152,22 @@ static void sleep_us(uint32_t usec) {
 }
 
 static nrf_ocd_error_t cortex_m_wait_reg_ready(nrf_ap_t *ap) {
+    /* Track consecutive transfer errors — ignore transient failures */
+    int consecutive_errors = 0;
+
     for (int i = 0; i < 1000; i++) {
         uint32_t dhcsr;
         nrf_ocd_error_t err = nrf_mem_read32(ap, DHCSR, &dhcsr);
-        if (err != NRF_OCD_OK)
-            return err;
+        if (err != NRF_OCD_OK) {
+            consecutive_errors++;
+            if (consecutive_errors > 10) {
+                NRF_DBG("DHCSR read failed %d times in a row, giving up", consecutive_errors);
+                return err;
+            }
+            sleep_us(1000);
+            continue;
+        }
+        consecutive_errors = 0;
         if (dhcsr & DHCSR_S_REGRDY)
             return NRF_OCD_OK;
         sleep_us(1000);
@@ -207,11 +222,22 @@ static nrf_ocd_error_t cortex_m_halt(nrf_ap_t *ap) {
     if (err != NRF_OCD_OK)
         return err;
 
+    /* Track consecutive transfer errors — ignore transient failures */
+    int consecutive_errors = 0;
+
     for (int i = 0; i < 1000; i++) {
         uint32_t dhcsr;
         err = nrf_mem_read32(ap, DHCSR, &dhcsr);
-        if (err != NRF_OCD_OK)
-            return err;
+        if (err != NRF_OCD_OK) {
+            consecutive_errors++;
+            if (consecutive_errors > 10) {
+                NRF_DBG("DHCSR read failed %d times in a row, giving up", consecutive_errors);
+                return err;
+            }
+            sleep_us(1000);
+            continue;
+        }
+        consecutive_errors = 0;
         if (dhcsr & DHCSR_S_HALT)
             return NRF_OCD_OK;
         sleep_us(1000);
@@ -228,13 +254,43 @@ static nrf_ocd_error_t cortex_m_wait_halted(nrf_ap_t *ap, uint32_t timeout_ms) {
     if (timeout_ms == 0)
         timeout_ms = 1;
 
+    /* Match pyOCD's get_state(): check not just S_HALT, but also
+     * LOCKUP (flash algorithm crashed), SLEEP (target went to sleep),
+     * and RESET (target was reset during operation). */
+    int consecutive_errors = 0;
+
     for (uint32_t elapsed = 0; elapsed < timeout_ms; elapsed++) {
         uint32_t dhcsr;
         nrf_ocd_error_t err = nrf_mem_read32(ap, DHCSR, &dhcsr);
-        if (err != NRF_OCD_OK)
-            return err;
+        if (err != NRF_OCD_OK) {
+            consecutive_errors++;
+            if (consecutive_errors > 10) {
+                NRF_DBG("DHCSR read failed %d times in a row, giving up", consecutive_errors);
+                return err;
+            }
+            sleep_us(1000);
+            continue;
+        }
+        consecutive_errors = 0;
+
         if (dhcsr & DHCSR_S_HALT)
             return NRF_OCD_OK;
+
+        /* Check for failure conditions (matches pyOCD get_state) */
+        if (dhcsr & DHCSR_S_LOCKUP) {
+            NRF_ERR("Core entered LOCKUP state (DHCSR=0x%08X)", dhcsr);
+            return NRF_OCD_ERR_FLASH_INIT;
+        }
+        /* S_RESET_ST is sticky — re-read to confirm */
+        if (dhcsr & DHCSR_S_RESET_ST) {
+            uint32_t dhcsr2;
+            nrf_ocd_error_t err2 = nrf_mem_read32(ap, DHCSR, &dhcsr2);
+            if (err2 == NRF_OCD_OK && (dhcsr2 & DHCSR_S_RESET_ST)
+                && !(dhcsr2 & DHCSR_S_RETIRE_ST)) {
+                NRF_ERR("Core was reset during flash operation (DHCSR=0x%08X)", dhcsr2);
+                return NRF_OCD_ERR_FLASH_INIT;
+            }
+        }
         sleep_us(1000);
     }
 

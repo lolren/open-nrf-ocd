@@ -171,6 +171,11 @@ nrf_ocd_error_t nrf_dap_open(nrf_dap_t *dap, nrf_probe_t *probe) {
     if (err != NRF_OCD_OK)
         return err;
 
+    /* Drain stale v2 bulk IN data from previous sessions.
+     * The SAMD11 bridge on XIAO boards retains response data
+     * across USB opens, which corrupts the first DAP_Info queries. */
+    nrf_probe_flush(probe);
+
     bool dap_info_bad = false;
 
     err = nrf_dap_info_int(dap, INFO_MAX_PACKET_SIZE, &val);
@@ -523,6 +528,7 @@ static nrf_ocd_error_t dap_swd_line_reset(nrf_dap_t *dap) {
 
 nrf_ocd_error_t nrf_dap_transfer(nrf_dap_t *dap, uint8_t dap_index, uint8_t request, uint32_t data, uint32_t *out_data) {
     int fault_retries = 0;
+    int wait_retries = 0;
     bool did_swd_reset = false;
 
     for (;;) {
@@ -562,10 +568,9 @@ nrf_ocd_error_t nrf_dap_transfer(nrf_dap_t *dap, uint8_t dap_index, uint8_t requ
             uint8_t short_ack = resp[2] & 0x07;
             if (short_ack == ACK_WAIT) {
                 NRF_DBG("DAP_Transfer: ACK_WAIT (count=%d)", resp[1]);
-                static int wait_count = 0;
-                wait_count++;
-                if (wait_count > MAX_WAIT_RETRIES) {
-                    wait_count = 0;
+                wait_retries++;
+                if (wait_retries > MAX_WAIT_RETRIES) {
+                    wait_retries = 0;
                     dap_abort_transfer(dap);
                 }
                 continue;

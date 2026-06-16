@@ -7,6 +7,7 @@
  */
 
 #include "nrf_ocd.h"
+#include "platform.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -415,14 +416,28 @@ nrf_ocd_error_t nrf_probe_write(nrf_probe_t *probe, const uint8_t *data, int len
         v2_ctx_t *ctx = (v2_ctx_t *)probe->hid_handle;
         if (len > ctx->packet_size)
             return NRF_OCD_ERR_USB_WRITE;
-        uint8_t *buf = malloc(ctx->packet_size);
-        if (!buf) return NRF_OCD_ERR_MEMORY;
-        memset(buf, 0, ctx->packet_size);
-        memcpy(buf, data, (size_t)len);
-        int transferred = 0;
-        int r = libusb_bulk_transfer(ctx->handle, ctx->ep_out, buf, ctx->packet_size, &transferred, 10000);
-        free(buf);
-        if (r < 0 || transferred != ctx->packet_size) return NRF_OCD_ERR_USB_WRITE;
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            uint8_t *buf = malloc(ctx->packet_size);
+            if (!buf) return NRF_OCD_ERR_MEMORY;
+            memset(buf, 0, ctx->packet_size);
+            memcpy(buf, data, (size_t)len);
+            int transferred = 0;
+            int r = libusb_bulk_transfer(ctx->handle, ctx->ep_out, buf, ctx->packet_size,
+                                         &transferred, 10000);
+            free(buf);
+            if (r == 0 && transferred == ctx->packet_size)
+                return NRF_OCD_OK;
+            if (attempt == 0) {
+                NRF_WARN("USB bulk write failed (r=%d), reconnecting...", r);
+                nrf_probe_close(probe);
+                usleep(500000);
+                nrf_ocd_error_t e = nrf_probe_open(probe);
+                if (e != NRF_OCD_OK) return e;
+                ctx = (v2_ctx_t *)probe->hid_handle;
+            }
+        }
+        return NRF_OCD_ERR_USB_WRITE;
     } else {
         hid_device *dev = (hid_device *)probe->hid_handle;
         int rs = probe->report_out_size;
@@ -448,18 +463,32 @@ nrf_ocd_error_t nrf_probe_read(nrf_probe_t *probe, uint8_t *buf, int buf_size, i
 
     if (probe->is_v2) {
         v2_ctx_t *ctx = (v2_ctx_t *)probe->hid_handle;
-        uint8_t *tmp = malloc(ctx->packet_size);
-        if (!tmp) return NRF_OCD_ERR_MEMORY;
-        int transferred = 0;
-        int r = libusb_bulk_transfer(ctx->handle, ctx->ep_in, tmp, ctx->packet_size, &transferred, 10000);
-        if (r >= 0 && transferred > 0) {
-            int copy = transferred > buf_size ? buf_size : transferred;
-            memcpy(buf, tmp, (size_t)copy);
-            transferred = copy;
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            uint8_t *tmp = malloc(ctx->packet_size);
+            if (!tmp) return NRF_OCD_ERR_MEMORY;
+            int transferred = 0;
+            int r = libusb_bulk_transfer(ctx->handle, ctx->ep_in, tmp, ctx->packet_size,
+                                         &transferred, 10000);
+            if (r >= 0 && transferred > 0) {
+                int copy = transferred > buf_size ? buf_size : transferred;
+                memcpy(buf, tmp, (size_t)copy);
+                transferred = copy;
+                free(tmp);
+                *out_len = transferred;
+                return NRF_OCD_OK;
+            }
+            free(tmp);
+            if (attempt == 0) {
+                NRF_WARN("USB bulk read failed (r=%d), reconnecting...", r);
+                nrf_probe_close(probe);
+                usleep(500000);
+                nrf_ocd_error_t e = nrf_probe_open(probe);
+                if (e != NRF_OCD_OK) return e;
+                ctx = (v2_ctx_t *)probe->hid_handle;
+            }
         }
-        free(tmp);
-        if (r < 0 || transferred <= 0) return NRF_OCD_ERR_USB_READ;
-        *out_len = transferred;
+        return NRF_OCD_ERR_USB_READ;
     } else {
         hid_device *dev = (hid_device *)probe->hid_handle;
         int rs = probe->report_in_size;
@@ -483,4 +512,27 @@ nrf_ocd_error_t nrf_probe_read(nrf_probe_t *probe, uint8_t *buf, int buf_size, i
         *out_len = ret;
     }
     return NRF_OCD_OK;
+}
+
+/* Drain stale v2 bulk IN data that may be buffered from previous sessions.
+ * The SAMD11 bridge on XIAO boards retains response data across USB opens. */
+void nrf_probe_flush(nrf_probe_t *probe) {
+    if (!probe || !probe->is_v2 || !probe->hid_handle)
+        return;
+
+    v2_ctx_t *ctx = (v2_ctx_t *)probe->hid_handle;
+    int flushed = 0;
+
+    for (int i = 0; i < 20; i++) {
+        uint8_t discard[256];
+        int transferred = 0;
+        int r = libusb_bulk_transfer(ctx->handle, ctx->ep_in, discard,
+                                     (int)sizeof(discard), &transferred, 5);
+        if (r != 0 || transferred <= 0)
+            break;
+        flushed++;
+    }
+
+    if (flushed > 0)
+        NRF_DBG("Flushed %d stale v2 bulk packet(s)", flushed);
 }

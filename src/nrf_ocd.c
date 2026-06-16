@@ -20,6 +20,7 @@
  */
 
 #include "nrf_ocd.h"
+#include "platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -363,8 +364,49 @@ nrf_ocd_error_t nrf_programmer_init(nrf_programmer_t *prog, nrf_probe_t *probe,
 
     /* Connect via SWD */
     err = nrf_swd_connect(&prog->dap);
-    if (err != NRF_OCD_OK)
-        goto fail;
+    if (err != NRF_OCD_OK) {
+        if (prog->auto_unlock) {
+            /* SWD connect failed — device may be APPROTECT-locked.
+             * Try CTRL-AP mass erase with nRESET asserted (like pyOCD's
+             * "connect under reset"). Holding the CPU in reset prevents
+             * APPROTECT firmware from locking the debug port. */
+            NRF_INFO("SWD connect failed, asserting nRESET and retrying...");
+
+            /* Assert nRESET (drive pin low) */
+            nrf_dap_swj_pins(&prog->dap, 0x80, 0, 0x00, 10000, NULL);
+            usleep(50000);  /* 50ms for reset to take effect */
+
+            /* Retry SWD connect with CPU held in reset */
+            nrf_dap_disconnect(&prog->dap);
+            err = nrf_dap_set_clock(&prog->dap, prog->clock_hz);
+            if (err != NRF_OCD_OK) goto fail;
+            err = nrf_swd_connect(&prog->dap);
+            if (err == NRF_OCD_OK) {
+                NRF_INFO("SWD connected under reset; performing CTRL-AP unlock...");
+                err = nrf54_ctrl_mass_erase(&prog->dap);
+            }
+
+            /* Release nRESET (drive pin high) */
+            nrf_dap_swj_pins(&prog->dap, 0x80, 0, 0x80, 10000, NULL);
+
+            if (err == NRF_OCD_OK) {
+                /* Reconnect clean after mass erase */
+                nrf_dap_close(&prog->dap);
+                usleep(100000);
+                err = nrf_dap_open(&prog->dap, prog->probe);
+                if (err != NRF_OCD_OK) goto fail;
+                err = nrf_dap_set_clock(&prog->dap, prog->clock_hz);
+                if (err != NRF_OCD_OK) goto fail;
+                err = nrf_swd_connect(&prog->dap);
+                if (err != NRF_OCD_OK) goto fail;
+            } else {
+                NRF_ERR("CTRL-AP unlock failed; try power-cycling the board.");
+                goto fail;
+            }
+        } else {
+            goto fail;
+        }
+    }
 
     /* Read DP IDCODE to verify connection */
     uint32_t idcode;

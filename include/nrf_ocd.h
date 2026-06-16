@@ -57,6 +57,7 @@ typedef struct {
 nrf_ocd_error_t nrf_probe_enum(nrf_probe_t **out_list, int *out_count);
 nrf_ocd_error_t nrf_probe_open(nrf_probe_t *probe);
 void nrf_probe_close(nrf_probe_t *probe);
+void nrf_probe_flush(nrf_probe_t *probe);
 void nrf_probe_free_list(nrf_probe_t **list, int count);
 nrf_ocd_error_t nrf_probe_write(nrf_probe_t *probe, const uint8_t *data, int len);
 nrf_ocd_error_t nrf_probe_read(nrf_probe_t *probe, uint8_t *buf, int buf_size, int *out_len);

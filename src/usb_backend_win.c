@@ -355,3 +355,7 @@ nrf_ocd_error_t nrf_probe_read(nrf_probe_t *probe, uint8_t *buf, int buf_size, i
     }
     return NRF_OCD_OK;
 }
+
+void nrf_probe_flush(nrf_probe_t *probe) {
+    (void)probe;
+}
