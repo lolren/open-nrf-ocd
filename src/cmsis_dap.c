@@ -295,6 +295,36 @@ nrf_ocd_error_t nrf_dap_connect(nrf_dap_t *dap, uint8_t port) {
     return NRF_OCD_OK;
 }
 
+/* Connect with nRESET asserted (CMSIS-DAP v2 mode 0x03 = SWD with reset).
+ * The probe asserts nRESET during connect, preventing the target from
+ * running APPROTECT firmware that would lock the debug port. */
+nrf_ocd_error_t nrf_dap_connect_under_reset(nrf_dap_t *dap) {
+    uint8_t cmd[2] = { CMD_DAP_CONNECT, 0x03 };  /* 0x03 = SWD with reset */
+    uint8_t resp[64];
+    int resp_len = 0;
+
+    nrf_ocd_error_t err = dap_send_cmd(dap, cmd, 2, resp, sizeof(resp), &resp_len);
+    if (err != NRF_OCD_OK)
+        return err;
+
+    err = dap_check_response(resp, resp_len, CMD_DAP_CONNECT);
+    if (err != NRF_OCD_OK)
+        return err;
+
+    if (resp[1] == 0) {
+        NRF_ERR("DAP_Connect (under reset) failed");
+        return NRF_OCD_ERR_SWD_CONNECT;
+    }
+
+    dap->connected = true;
+    dap->dap_port = resp[1];
+
+    /* Release nRESET after connect succeeds */
+    nrf_dap_swj_pins(dap, 0x80, 0, 0x80, 10000, NULL);
+
+    return NRF_OCD_OK;
+}
+
 nrf_ocd_error_t nrf_dap_disconnect(nrf_dap_t *dap) {
     uint8_t cmd[1] = { CMD_DAP_DISCONNECT };
     uint8_t resp[64];

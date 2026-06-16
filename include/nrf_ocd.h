@@ -85,6 +85,7 @@ nrf_ocd_error_t nrf_dap_info_int(nrf_dap_t *dap, uint8_t id, int *out_value);
 
 /* Target connect/disconnect */
 nrf_ocd_error_t nrf_dap_connect(nrf_dap_t *dap, uint8_t port);
+nrf_ocd_error_t nrf_dap_connect_under_reset(nrf_dap_t *dap);
 nrf_ocd_error_t nrf_dap_disconnect(nrf_dap_t *dap);
 nrf_ocd_error_t nrf_dap_reset(nrf_dap_t *dap);
 nrf_ocd_error_t nrf_dap_set_clock(nrf_dap_t *dap, uint32_t freq_hz);

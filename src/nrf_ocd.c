@@ -367,27 +367,17 @@ nrf_ocd_error_t nrf_programmer_init(nrf_programmer_t *prog, nrf_probe_t *probe,
     if (err != NRF_OCD_OK) {
         if (prog->auto_unlock) {
             /* SWD connect failed — device may be APPROTECT-locked.
-             * Try CTRL-AP mass erase with nRESET asserted (like pyOCD's
-             * "connect under reset"). Holding the CPU in reset prevents
-             * APPROTECT firmware from locking the debug port. */
-            NRF_INFO("SWD connect failed, asserting nRESET and retrying...");
+             * Use DAP_Connect mode 0x03 (SWD with reset) which tells
+             * the probe to assert nRESET as part of connect, preventing
+             * the target from running APPROTECT firmware. Matches pyOCD. */
+            NRF_INFO("SWD connect failed, trying connect-under-reset...");
 
-            /* Assert nRESET (drive pin low) */
-            nrf_dap_swj_pins(&prog->dap, 0x80, 0, 0x00, 10000, NULL);
-            usleep(50000);  /* 50ms for reset to take effect */
-
-            /* Retry SWD connect with CPU held in reset */
             nrf_dap_disconnect(&prog->dap);
-            err = nrf_dap_set_clock(&prog->dap, prog->clock_hz);
-            if (err != NRF_OCD_OK) goto fail;
-            err = nrf_swd_connect(&prog->dap);
+            err = nrf_dap_connect_under_reset(&prog->dap);
             if (err == NRF_OCD_OK) {
-                NRF_INFO("SWD connected under reset; performing CTRL-AP unlock...");
+                NRF_INFO("Connected under reset, performing CTRL-AP mass erase...");
                 err = nrf54_ctrl_mass_erase(&prog->dap);
             }
-
-            /* Release nRESET (drive pin high) */
-            nrf_dap_swj_pins(&prog->dap, 0x80, 0, 0x80, 10000, NULL);
 
             if (err == NRF_OCD_OK) {
                 /* Reconnect clean after mass erase */
