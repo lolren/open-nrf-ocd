@@ -302,14 +302,11 @@ nrf_ocd_error_t nrf_mem_init_csw(nrf_ap_t *ap) {
 
     NRF_DBG("MEM-AP base CSW = 0x%08X", g_mem_csw_base);
 
-    /* Force CSW to a known-good state: SADDRINC + DEVICEEN + 32-bit,
-     * preserving HPROT and HNONSEC from the hardware default.
-     * Exclude error flags (bits 5-7) that may accumulate. */
-    g_mem_csw_base |= CSW_SADDRINC;
-    g_mem_csw_base |= CSW_DEVICEEN;
-    g_mem_csw_base &= ~0x07U;
-    g_mem_csw_base |= CSW_SIZE32;
-    g_mem_csw_base &= ~(CSW_SDEVICEEN | CSW_HNONSEC);  /* clear secure debug bits */
+    /* Use pyOCD's exact CSW value for nRF54: 0x03000012
+     * = SIZE32 + SADDRINC + DEVICEEN + HPROT[0] + HPROT[1] + HPROT[2]
+     * HPROT bits are REQUIRED for flash access on nRF54.
+     * Do NOT use hardware default — it may have SDEVICEEN set, causing LOCKUP. */
+    g_mem_csw_base = 0x03000012U;
 
     err = nrf_ap_write(dap, ap_base | MEM_AP_CSW, g_mem_csw_base);
     if (err != NRF_OCD_OK) {
