@@ -234,6 +234,13 @@ linux-armhf:
 		LDFLAGS_EXTRA="-static"
 	cp build/bin/nrf_ocd build/bin/nrf_ocd-linux-armhf
 
+# macOS x86_64 (cross, HID backend)
+macos-x64:
+	$(MAKE) clean
+	$(MAKE) CC=x86_64-apple-darwin20-clang USE_LIBUSB=0 OS=darwin \
+		CFLAGS_EXTRA="-D_DARWIN_C_SOURCE" LDFLAGS_EXTRA="-framework IOKit -framework CoreFoundation"
+	cp build/bin/nrf_ocd build/bin/nrf_ocd-macos-x64
+
 # Windows x86_64 (cross, HID backend)
 win64:
 	$(MAKE) clean

@@ -318,6 +318,20 @@ nrf_ocd_status_t target_nrf54l_read_part_info(target_t *t) {
 }
 
 nrf_ocd_status_t target_nrf54l_reset(target_t *t, target_reset_mode_t mode) {
+    /* For under-reset mode, use CMSIS-DAP SWJ_PINS to toggle nRESET. */
+    if (mode == TARGET_RESET_UNDER_RESET) {
+        uint8_t pins;
+        nrf_ocd_status_t st = cmsis_dap_swj_pins(&t->dap, 0, &pins, 0);
+        if (st != NRF_OCD_OK) return st;
+        /* nRESET = bit 7, SWCLK = bit 1, SWDIO = bit 0 */
+        st = cmsis_dap_swj_pins(&t->dap, 0x80, &pins, 100);  /* nRESET low for 100ms */
+        if (st != NRF_OCD_OK) return st;
+        st = cmsis_dap_swj_pins(&t->dap, 0x00, &pins, 10);   /* nRESET high */
+        if (st != NRF_OCD_OK) return st;
+        t->halted = false;
+        return NRF_OCD_OK;
+    }
+    
     /* The nRF54L reset is a CPU-side AIRCR reset. Issue VECTKEY+SYSRESETREQ
      * to the AHB-AP. */
     if (mode == TARGET_RESET_HALT) {

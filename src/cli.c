@@ -176,7 +176,7 @@ static int cmd_load(cli_ctx_t *ctx, int argc, char **argv) {
     }
     size_t total = 0;
     hex_image_total_size(&img, &total);
-    LOG_INFO("Loaded %zu segment(s), %zu bytes total", img.count, total);
+    printf("  Loaded %zu KB (%zu segment(s))\n", total / 1024, img.count);
 
     st = flash_write_image(&t, &img, &ctx->flash_opts);
     hex_image_free(&img);

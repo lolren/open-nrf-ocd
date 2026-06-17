@@ -372,6 +372,22 @@ nrf_ocd_status_t flash_algo_uninit(target_t *t, const flash_algo_t *algo) {
     return NRF_OCD_OK;
 }
 
+/* Erase one sector via flash algorithm. */
+nrf_ocd_status_t flash_algo_erase_sector(target_t *t, const flash_algo_t *algo, uint32_t address) {
+    uint32_t result;
+    nrf_ocd_status_t st = flash_algo_call_function(t, algo, algo->pc_erase_sector, address, 0, 0,
+                                                     false, 30000, &result);
+    if (st != NRF_OCD_OK) {
+        LOG_ERROR("Flash algo erase sector at 0x%08x failed: %s", address, nrf_ocd_strerror(st));
+        return st;
+    }
+    if (result != 0) {
+        LOG_ERROR("Flash algo erase sector returned %u at 0x%08x", result, address);
+        return NRF_OCD_ERR_FLASH_ERASE;
+    }
+    return NRF_OCD_OK;
+}
+
 /* Erase all flash via flash algorithm. */
 nrf_ocd_status_t flash_algo_erase_all(target_t *t, const flash_algo_t *algo) {
     uint32_t result;

@@ -58,14 +58,16 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
 
     /* Erase if requested. */
     if (opts->erase != FLASH_ERASE_NONE) {
-        LOG_INFO("Erasing chip...");
+        printf("  Erasing chip... ");
+        fflush(stdout);
         st = flash_algo_erase_all(t, algo);
         if (st != NRF_OCD_OK) {
+            printf("FAILED\n");
             LOG_ERROR("Erase failed: %s", nrf_ocd_strerror(st));
             flash_algo_uninit(t, algo);
             return st;
         }
-        LOG_INFO("Erase complete");
+        printf("done\n");
         
         /* Re-halt after erase. */
         st = flash_algo_halt(t);
@@ -79,7 +81,8 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
     /* Program each segment. */
     size_t total = 0;
     for (size_t i = 0; i < img->count; i++) total += img->segments[i].size;
-    LOG_INFO("Programming %zu byte(s) in %zu segment(s)", total, img->count);
+    uint64_t t_start = nrf_ocd_monotonic_ms();
+    printf("  Programming %zu KB...\n", total / 1024);
     
     size_t done = 0;
     uint64_t last_log_ms = nrf_ocd_monotonic_ms();
@@ -119,9 +122,14 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
             nrf_ocd_sleep_ms(1);
             
             uint64_t now = nrf_ocd_monotonic_ms();
-            if (now - last_log_ms > 250) {
-                printf("  ... %zu / %zu bytes (%.1f%%)\n",
-                         done, total, done * 100.0 / (double)total);
+            if (now - last_log_ms > 200) {
+                int _xx = (int)(done * 100 / total);
+                int _yy = 30;
+                int _zz = (_xx * _yy) / 100;
+                int _ww;
+                printf("\r  [");
+                for (_ww = 0; _ww < _yy; _ww++) printf(_ww < _zz ? "=" : _ww == _zz ? ">" : " ");
+                printf("] %3d%% (%zu/%zu KB)", _xx, done / 1024, total / 1024);
                 fflush(stdout);
                 last_log_ms = now;
             }
@@ -140,7 +148,10 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
     /* Uninitialize flash algorithm. */
     flash_algo_uninit(t, algo);
     
-    LOG_INFO("Programmed %zu bytes in %zu segment(s)", total, img->count);
+    uint64_t elapsed = (nrf_ocd_monotonic_ms() - t_start) / 1000;
+    printf("\r  [==============================] 100%% (%zu/%zu KB)\n", total / 1024, total / 1024);
+    printf("  Done: %zu bytes in %lu s (%.1f kB/s)\n", total, (unsigned long)elapsed, 
+           elapsed > 0 ? (double)total / (1024.0 * (double)elapsed) : 0.0);
     return NRF_OCD_OK;
 }
 
