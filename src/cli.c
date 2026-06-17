@@ -107,7 +107,7 @@ static nrf_ocd_status_t open_target(cli_ctx_t *ctx, target_t *t) {
         LOG_ERROR("Could not open probe: %s", nrf_ocd_strerror(st));
         return st;
     }
-    LOG_INFO("Probe: %s [%s] (%s) at %s",
+    printf("  Probe: %s [%s] (%s) at %s\n",
              info.product, info.serial, info.manufacturer, info.path);
     st = target_open(t, dev, ctx->target);
     if (st != NRF_OCD_OK) {
@@ -192,7 +192,7 @@ static int cmd_load(cli_ctx_t *ctx, int argc, char **argv) {
         }
     }
     target_close(&t);
-    LOG_INFO("Upload complete");
+    printf("  Upload complete\n");
     return 0;
 }
 
@@ -207,7 +207,7 @@ static int cmd_erase(cli_ctx_t *ctx) {
         target_close(&t);
         return 1;
     }
-    LOG_INFO("Chip erase complete");
+    printf("  Chip erase complete\n");
     target_close(&t);
     return 0;
 }
@@ -226,7 +226,7 @@ static int cmd_reset(cli_ctx_t *ctx) {
         }
     }
     target_close(&t);
-    LOG_INFO("Target reset");
+    printf("  Target reset\n");
     return 0;
 }
 

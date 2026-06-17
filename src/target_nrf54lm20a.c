@@ -91,7 +91,7 @@ nrf_ocd_status_t target_nrf54lm20a_read_part_info(target_t *t) {
     variant_str[3] = (char)((variant >> 24) & 0xFF);
     snprintf(t->part_number, sizeof(t->part_number), "nRF%04X%s",
              (unsigned)(partno & 0xFFFF), variant_str);
-    LOG_INFO("Detected target: %s", t->part_number);
+    printf("  Target: %s\n", t->part_number);
     return NRF_OCD_OK;
 }
 

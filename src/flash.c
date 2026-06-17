@@ -149,7 +149,7 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
     flash_algo_uninit(t, algo);
     
     uint64_t elapsed = (nrf_ocd_monotonic_ms() - t_start) / 1000;
-    printf("\r  [==============================] 100%% (%zu/%zu KB)\n", total / 1024, total / 1024);
+    /* progress bar already shown above */
     printf("  Done: %zu bytes in %lu s (%.1f kB/s)\n", total, (unsigned long)elapsed, 
            elapsed > 0 ? (double)total / (1024.0 * (double)elapsed) : 0.0);
     return NRF_OCD_OK;
