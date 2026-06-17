@@ -62,10 +62,16 @@ void nrf_ocd_log_emit(log_level_t level, const char *file, int line,
     if (alt) short_file = alt + 1;
 #endif
 
+#ifdef _WIN32
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_s(&tm, &now);
+#else
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     struct tm tm;
     localtime_r(&ts.tv_sec, &tm);
+#endif
 
     char timebuf[32];
     strftime(timebuf, sizeof(timebuf), "%H:%M:%S", &tm);

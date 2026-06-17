@@ -298,3 +298,6 @@ const char *hid_serial(const hid_device_t *dev)   { return dev ? dev->serial : "
 uint16_t    hid_vid(const hid_device_t *dev)      { return dev ? dev->vid : 0; }
 uint16_t    hid_pid(const hid_device_t *dev)      { return dev ? dev->pid : 0; }
 int         hid_report_size(const hid_device_t *dev) { return dev ? dev->report_size : 64; }
+
+bool hid_is_bulk(const hid_device_t *dev) { (void)dev; return false; }
+void hid_mark_bulk(hid_device_t *dev) { (void)dev; }

@@ -209,4 +209,43 @@ print-vars:
 	@echo "CC=$(CC)"
 	@echo "CFLAGS=$(CFLAGS)"
 
+# ----- Cross-compilation targets -----------------------------------------------
+.PHONY: linux-x64 linux-arm64 linux-armhf win64 clean-all
+
+# Linux x86_64 (native, with libusb)
+linux-x64:
+	$(MAKE) clean
+	$(MAKE) USE_LIBUSB=1 CC=/usr/bin/gcc-13
+	cp build/bin/nrf_ocd build/bin/nrf_ocd-linux-x64
+
+# Linux aarch64 (cross, HID backend)
+linux-arm64:
+	$(MAKE) clean
+	$(MAKE) CC=aarch64-linux-gnu-gcc USE_LIBUSB=0 \
+		CFLAGS_EXTRA="-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L" \
+		LDFLAGS_EXTRA="-static"
+	cp build/bin/nrf_ocd build/bin/nrf_ocd-linux-arm64
+
+# Linux armhf (cross, HID backend)
+linux-armhf:
+	$(MAKE) clean
+	$(MAKE) CC=arm-linux-gnueabihf-gcc USE_LIBUSB=0 \
+		CFLAGS_EXTRA="-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L" \
+		LDFLAGS_EXTRA="-static"
+	cp build/bin/nrf_ocd build/bin/nrf_ocd-linux-armhf
+
+# Windows x86_64 (cross, HID backend)
+win64:
+	$(MAKE) clean
+	$(MAKE) CC=x86_64-w64-mingw32-gcc USE_LIBUSB=0 \
+		OS=windows \
+		CFLAGS_EXTRA="-D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L" \
+		LDFLAGS_EXTRA="-static"
+	cp build/bin/nrf_ocd.exe build/bin/nrf_ocd-win64.exe
+
+# Build all release binaries
+release: linux-x64 linux-arm64 linux-armhf win64
+	@echo "=== Release binaries in build/bin/ ==="
+	ls -la build/bin/
+
 -include $(DEP)
