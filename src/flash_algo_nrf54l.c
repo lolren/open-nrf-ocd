@@ -41,6 +41,8 @@
 #define REG_LR        14
 #define REG_PC        15
 #define REG_XPSR      16
+/* PRIMASK (BASEPRI alias) - write 1 to disable all configurable interrupts. */
+#define REG_PRIMASK   20
 #define XPSR_THUMB    0x01000000U
 
 /* Flash algorithm from pyOCD's target_nRF54L15.py. */
@@ -287,6 +289,12 @@ nrf_ocd_status_t flash_algo_call_function(target_t *t, const flash_algo_t *algo,
     nrf_ocd_status_t st = core_regs_write(t, regs, vals, count);
     if (st != NRF_OCD_OK) return st;
     
+    /* Disable all interrupts on target before resuming.
+     * This prevents interrupt handlers from interfering with flash writes. */
+    uint32_t primask_val = 1;
+    st = core_reg_write(t, REG_PRIMASK, primask_val);
+    if (st != NRF_OCD_OK) return st;
+    
     /* Resume target to execute the function. */
     st = flash_algo_resume(t);
     if (st != NRF_OCD_OK) return st;
@@ -340,7 +348,7 @@ nrf_ocd_status_t flash_algo_init(target_t *t, const flash_algo_t *algo,
     /* Call Init function. */
     uint32_t result;
     st = flash_algo_call_function(t, algo, algo->pc_init, address, clock, operation,
-                                   true, 5000, &result);
+                                   true, 30000, &result);
     if (st != NRF_OCD_OK) {
         LOG_ERROR("Flash algo init failed: %s", nrf_ocd_strerror(st));
         return st;
@@ -356,7 +364,7 @@ nrf_ocd_status_t flash_algo_init(target_t *t, const flash_algo_t *algo,
 nrf_ocd_status_t flash_algo_uninit(target_t *t, const flash_algo_t *algo) {
     uint32_t result;
     nrf_ocd_status_t st = flash_algo_call_function(t, algo, algo->pc_uninit, 0, 0, 0,
-                                                     false, 5000, &result);
+                                                     false, 30000, &result);
     if (st != NRF_OCD_OK) {
         LOG_WARNING("Flash algo uninit failed: %s", nrf_ocd_strerror(st));
         return st;
@@ -391,7 +399,7 @@ nrf_ocd_status_t flash_algo_program_page(target_t *t, const flash_algo_t *algo,
     /* Call ProgramPage function. */
     uint32_t result;
     st = flash_algo_call_function(t, algo, algo->pc_program_page, address, (uint32_t)len,
-                                   algo->page_buffers[0], false, 5000, &result);
+                                   algo->page_buffers[0], false, 30000, &result);
     if (st != NRF_OCD_OK) {
         LOG_ERROR("Flash algo program page failed at 0x%08x: %s", address, nrf_ocd_strerror(st));
         return st;

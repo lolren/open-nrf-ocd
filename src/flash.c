@@ -115,6 +115,9 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
             off += chunk;
             done += chunk;
             
+            /* Small delay between pages to let NVMC settle. */
+            nrf_ocd_sleep_ms(1);
+            
             uint64_t now = nrf_ocd_monotonic_ms();
             if (now - last_log_ms > 250) {
                 printf("  ... %zu / %zu bytes (%.1f%%)\n",
