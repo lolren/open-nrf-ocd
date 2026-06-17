@@ -219,11 +219,21 @@ nrf_ocd_status_t cmsis_dap_connect(cmsis_dap_t *dap, dap_port_t port) {
     dap->cmd_buf[1] = (uint8_t)port;
     nrf_ocd_status_t st = send_recv(dap, dap->cmd_buf, 2, 1);
     if (st != NRF_OCD_OK) return st;
-    if (dap->rsp_buf[0] == 0x00) {
-        LOG_ERROR("DAP_Connect: no debug port connected");
-        return NRF_OCD_ERR_PROTOCOL;
+    /* HID path retains cmd echo byte; bulk path already stripped it. */
+    if (dap->is_bulk) {
+        if (dap->rsp_buf[0] != 1) {
+            LOG_ERROR("DAP_Connect: failed (status=%d)", dap->rsp_buf[0]);
+            return NRF_OCD_ERR_PROTOCOL;
+        }
+    } else {
+        /* HID: rsp_buf[0] = cmd echo, rsp_buf[1] = status */
+        if (dap->rsp_buf[0] != DAP_CMD_CONNECT || dap->rsp_buf[1] != 1) {
+            LOG_ERROR("DAP_Connect: failed (echo=0x%02x status=%d)",
+                      dap->rsp_buf[0], dap->rsp_buf[1]);
+            return NRF_OCD_ERR_PROTOCOL;
+        }
     }
-    LOG_DEBUG("DAP_Connect: port 0x%02x connected", dap->rsp_buf[0]);
+    LOG_DEBUG("DAP_Connect: port 0x%02x connected", port);
     return cmsis_dap_swd_configure(dap, 1, false);
 }
 
