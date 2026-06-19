@@ -116,6 +116,17 @@ if command -v i686-w64-mingw32-gcc &>/dev/null; then
     echo "  -> $(stat -c%s "$OUTDIR/windows-i386/nrf_ocd.exe") bytes  OK"
 fi
 
+# ========== macOS (requires osxcross / macOS SDK) ==========
+# Build natively on macOS: gcc -std=c11 -Os -I include src/nrf_ocd.c src/usb_backend_macos.c src/hid_macos.c src/cmsis_dap.c src/coresight.c src/flash_algo.c src/intelhex.c src/log.c -framework CoreFoundation -framework IOKit -o nrf_ocd
+
+if [ -d /Applications/Xcode.app ] || [ -d /Library/Developer/CommandLineTools ]; then
+    echo "=== macOS-amd64 (native build, macOS SDK required) ==="
+    mkdir -p "$OUTDIR/macos-amd64"
+    cc -std=c11 -Os -I include         src/nrf_ocd.c src/usb_backend_macos.c src/hid_macos.c src/cmsis_dap.c         src/coresight.c src/flash_algo.c src/intelhex.c src/log.c         -framework CoreFoundation -framework IOKit         -o "$OUTDIR/macos-amd64/nrf_ocd" 2>&1 | tail -1
+    strip "$OUTDIR/macos-amd64/nrf_ocd" 2>/dev/null || true
+    echo "  -> $(stat -c%s "$OUTDIR/macos-amd64/nrf_ocd" 2>/dev/null || stat -f%z "$OUTDIR/macos-amd64/nrf_ocd") bytes  OK"
+fi
+
 # ========== Summary ==========
 echo ""
 echo "================================================"

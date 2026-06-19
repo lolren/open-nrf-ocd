@@ -81,6 +81,8 @@ static void print_usage(const char *prog) {
         prog, prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
+static const char *nrf_serial_from_port(const char *port_path);
+
 int main(int argc, char *argv[]) {
     action_t action = ACTION_NONE;
     char *serial = NULL;
@@ -96,6 +98,7 @@ int main(int argc, char *argv[]) {
     bool no_reset __attribute__((unused)) = false;
     bool do_reset = false;
     bool has_sector = false;
+    const char *port_path = NULL;
 
     static struct option long_options[] = {
         {"auto-unlock", no_argument,       NULL, 'U'},
@@ -106,9 +109,10 @@ int main(int argc, char *argv[]) {
     };
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "lu:f:et:c:vqihr:w:Rs:", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "lu:f:et:c:vqihr:w:Rs:p:", long_options, NULL)) != -1) {
         switch (opt) {
             case 'l': action = ACTION_LIST; break;
+            case 'p': port_path = optarg; break;
             case 'u': serial = optarg; break;
             case 'f': hex_file = optarg; action = ACTION_FLASH; break;
             case 'e': do_erase = true; if (action == ACTION_NONE) action = ACTION_ERASE; break;
@@ -201,6 +205,15 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Error: no action specified\n");
         print_usage(argv[0]);
         return 1;
+    }
+
+    /* Resolve serial from port if given */
+    if (port_path != NULL && serial == NULL) {
+        serial = nrf_serial_from_port(port_path);
+        if (serial == NULL) {
+            fprintf(stderr, "Error: could not determine probe serial from port %s\n", port_path);
+            return 1;
+        }
     }
 
     /* All other actions require a serial */
@@ -793,4 +806,30 @@ nrf_ocd_error_t nrf_programmer_info(nrf_programmer_t *prog) {
     NRF_INFO("ROM Table: 0x%08X", prog->ap.rom_addr);
 
     return NRF_OCD_OK;
+}
+
+static const char *nrf_serial_from_port(const char *port_path) {
+    static char buf[64];
+    if (!port_path) return NULL;
+    const char *tty = port_path;
+    const char *last_slash = strrchr(port_path, '/');
+    if (last_slash) tty = last_slash + 1;
+    if (*tty == '\0') return NULL;
+    char syspath[512];
+    int n = snprintf(syspath, sizeof(syspath),
+                     "/sys/class/tty/%s/../../../serial", tty);
+    if (n < 0 || (size_t)n >= sizeof(syspath)) return NULL;
+    FILE *f = fopen(syspath, "r");
+    if (!f) {
+        n = snprintf(syspath, sizeof(syspath),
+                     "/sys/class/tty/%s/device/../serial", tty);
+        if (n < 0 || (size_t)n >= sizeof(syspath)) return NULL;
+        f = fopen(syspath, "r");
+    }
+    if (!f) return NULL;
+    if (!fgets(buf, sizeof(buf), f)) { fclose(f); return NULL; }
+    fclose(f);
+    size_t len = strlen(buf);
+    while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) buf[--len] = '\0';
+    return (len > 0) ? buf : NULL;
 }
