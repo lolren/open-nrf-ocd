@@ -160,3 +160,33 @@ const char *nrf_ocd_strerror(nrf_ocd_status_t s) {
     }
     return "Unknown";
 }
+
+int port_to_serial(const char *port, char *buf, size_t buf_size) {
+    if (!port || !buf || buf_size < 2) return 0;
+#ifdef _WIN32
+    (void)port; (void)buf; (void)buf_size;
+    return 0;
+#else
+    const char *tty = port;
+    const char *last_slash = strrchr(port, '/');
+    if (last_slash) tty = last_slash + 1;
+    if (*tty == '\0') return 0;
+    char syspath[512];
+    int n = snprintf(syspath, sizeof(syspath),
+                     "/sys/class/tty/%s/../../../serial", tty);
+    if (n < 0 || (size_t)n >= sizeof(syspath)) return 0;
+    FILE *f = fopen(syspath, "r");
+    if (!f) {
+        n = snprintf(syspath, sizeof(syspath),
+                     "/sys/class/tty/%s/device/../serial", tty);
+        if (n < 0 || (size_t)n >= sizeof(syspath)) return 0;
+        f = fopen(syspath, "r");
+    }
+    if (!f) return 0;
+    if (!fgets(buf, (int)buf_size, f)) { fclose(f); return 0; }
+    fclose(f);
+    size_t len = strlen(buf);
+    while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r')) buf[--len] = '\0';
+    return (len > 0) ? 1 : 0;
+#endif
+}

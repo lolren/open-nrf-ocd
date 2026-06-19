@@ -28,6 +28,7 @@
 #include "flash.h"
 #include "hex.h"
 #include "log.h"
+#include "util.h"
 #include "nrf_ocd.h"
 #include "probe.h"
 #include "target.h"
@@ -315,7 +316,8 @@ static void print_usage(FILE *f) {
         "  write <addr> <hex>            Write hex bytes to memory\n"
         "\n"
         "Options:\n"
-        "  -u, --uid <serial>            Probe serial (e.g. 761FDE87)\n"
+        "  -p, --port <device>           Serial port device (e.g. /dev/ttyACM0 or COM1)\n"
+    "  -u, --uid <serial>            Probe serial (e.g. 761FDE87)\n"
         "  -t, --target <name>           nrf54l15, nrf54lm20a\n"
         "      --index <n>               Probe index\n"
         "  -f, --frequency <khz>         SWD clock (default 1000)\n"
@@ -345,6 +347,16 @@ static void print_usage(FILE *f) {
 /* ----- argument parser --------------------------------------------------- */
 static int apply_long_option(cli_ctx_t *ctx, int val, const char *arg) {
     switch (val) {
+        case 'p': {
+            char buf[64] = {0};
+            if (port_to_serial(arg, buf, sizeof(buf))) {
+                strncpy(ctx->uid, buf, sizeof(ctx->uid) - 1);
+            } else {
+                LOG_ERROR("Cannot determine probe serial from port %s", arg);
+                return 1;
+            }
+            return 0;
+        }
         case 'u': strncpy(ctx->uid, arg, sizeof(ctx->uid) - 1); return 0;
         case 't': {
             target_type_t ty = target_type_from_string(arg);
@@ -386,6 +398,7 @@ static int apply_long_option(cli_ctx_t *ctx, int val, const char *arg) {
 static int parse_opts(int argc, char **argv, cli_ctx_t *ctx) {
     static struct option long_opts[] = {
         {"uid",         required_argument, 0, 'u'},
+        {"port",        required_argument, 0, 'p'},
         {"target",      required_argument, 0, 't'},
         {"index",       required_argument, 0, 1001},
         {"frequency",   required_argument, 0, 'f'},
@@ -403,9 +416,9 @@ static int parse_opts(int argc, char **argv, cli_ctx_t *ctx) {
     };
     int c;
     optind = 1;
-    while ((c = getopt_long(argc, argv, "+u:t:f:vqhe:R", long_opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "+u:t:f:vqhe:Rp:", long_opts, NULL)) != -1) {
         switch (c) {
-            case 'u': case 't': case 1001: case 'f': case 'e':
+            case 'u': case 't': case 1001: case 'p': case 'f': case 'e':
             case 'R': case 2001: case 2002: case 2003: case 2004: case 2005: {
                 int r = apply_long_option(ctx, c, optarg);
                 if (r > 0) return 1;

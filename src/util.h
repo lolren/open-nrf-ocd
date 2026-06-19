@@ -94,3 +94,6 @@ uint8_t nrf_ocd_rev8(uint8_t v);
 #endif
 
 #endif /* NRF_OCD_UTIL_H */
+
+/* Resolve CMSIS-DAP serial from tty device path. Returns 1 on success. */
+int port_to_serial(const char *port, char *buf, size_t buf_size);
