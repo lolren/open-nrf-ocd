@@ -344,11 +344,21 @@ nrf_ocd_status_t flash_algo_init(target_t *t, const flash_algo_t *algo,
     /* Ensure core is halted. */
     nrf_ocd_status_t st = flash_algo_halt(t);
     if (st != NRF_OCD_OK) return st;
-    
-    /* Call Init function. */
+
+    /* Fresh RRAM chips may need two init attempts (first call times out).
+     * Retry once with a warning instead of failing immediately. */
     uint32_t result;
-    st = flash_algo_call_function(t, algo, algo->pc_init, address, clock, operation,
-                                   true, 30000, &result);
+    for (int attempt = 0; attempt < 2; attempt++) {
+        st = flash_algo_call_function(t, algo, algo->pc_init, address, clock, operation,
+                                       true, 30000, &result);
+        if (st == NRF_OCD_OK && result == 0)
+            return NRF_OCD_OK;
+        if (attempt == 0) {
+            LOG_WARNING("Flash algo init timeout (fresh RRAM?), retrying...");
+            /* Small delay before retry to let RRAM settle. */
+            nrf_ocd_sleep_ms(100);
+        }
+    }
     if (st != NRF_OCD_OK) {
         LOG_ERROR("Flash algo init failed: %s", nrf_ocd_strerror(st));
         return st;

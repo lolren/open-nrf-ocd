@@ -118,7 +118,7 @@ const hid_device_info_t *hid_enumerate_next(hid_enumerate_handle_t *h) {
             memset(info, 0, sizeof(*info));
             info->vendor_id  = attr.VendorID;
             info->product_id = attr.ProductID;
-            wstr_to_str(detail->DevicePath, info->path, sizeof(info->path));
+            wstr_to_str((const wchar_t *)detail->DevicePath, info->path, sizeof(info->path));
 
             wchar_t buf[256];
             if (HidD_GetSerialNumberString(h2, buf, sizeof(buf)))
