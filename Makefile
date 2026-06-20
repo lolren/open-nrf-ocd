@@ -25,6 +25,7 @@ TARGET_OS := $(OS)
 
 # ----- Optional libusb support -----------------------------------------------
 USE_LIBUSB ?= 0
+STATIC ?= 0
 ifeq ($(USE_LIBUSB),1)
     LIBUSB_CFLAGS := $(shell pkg-config --cflags libusb-1.0 2>/dev/null)
     LIBUSB_LDLIBS := $(shell pkg-config --libs libusb-1.0 2>/dev/null)
@@ -32,6 +33,9 @@ ifeq ($(USE_LIBUSB),1)
         LIBUSB_CFLAGS := -I/usr/include/libusb-1.0
         LIBUSB_LDLIBS := -lusb-1.0
         LIBUSB_LDFLAGS := -L/usr/lib/x86_64-linux-gnu
+    endif
+    ifeq ($(STATIC),1)
+        LIBUSB_LDFLAGS += -static
     endif
     DEFS += -DNRF_OCD_USE_LIBUSB=1
 endif
@@ -136,7 +140,7 @@ else
 endif
 
 CFLAGS   := $(STD) $(WARN) $(OPT) $(DEFS) $(OS_CFLAGS) $(LIBUSB_CFLAGS) $(INCLUDE) -MMD -MP
-LDFLAGS  := $(LIBUSB_LDFLAGS)
+LDFLAGS  := $(LIBUSB_LDFLAGS) $(EXTRALDFLAGS) $(EXTRALDFLAGS)
 LDLIBS   := $(OS_LDLIBS) $(LIBUSB_LDLIBS)
 
 # ----- Default target ---------------------------------------------------------
