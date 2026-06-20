@@ -25,7 +25,23 @@ TARGET_OS := $(OS)
 
 # ----- Optional libusb support -----------------------------------------------
 USE_LIBUSB ?= 0
+ZIG ?= 0
 STATIC ?= 0
+ifeq ($(ZIG),1)
+    # Zig cross-compilation targeting glibc 2.17
+    CC := zig cc -target x86_64-linux-gnu.2.17
+    AR := zig ar
+    HID_SRC := $(SRC_DIR)/hid_libusb.c
+    HID_OBJ := $(OBJ_DIR)/hid_libusb.o
+    DEFS += -DNRF_OCD_USE_LIBUSB=1 -Wno-implicit-function-declaration -Wno-date-time -Wno-format -Wno-multichar
+    LIBUSB_CFLAGS := -I/tmp/lb-install/include
+    LIBUSB_LDLIBS := /tmp/lb-install/lib/libusb-1.0.a -lpthread
+    OS_LDLIBS :=
+else
+    # Normal gcc build
+    CC ?= gcc
+    AR ?= ar
+endif
 ifeq ($(USE_LIBUSB),1)
     LIBUSB_CFLAGS := $(shell pkg-config --cflags libusb-1.0 2>/dev/null)
     LIBUSB_LDLIBS := $(shell pkg-config --libs libusb-1.0 2>/dev/null)
