@@ -39,6 +39,8 @@ struct hid_device {
     uint16_t vid;
     uint16_t pid;
     int      report_size;
+    int      input_report_size;
+    int      output_report_size;
 };
 
 struct hid_enumerate_handle {
@@ -214,13 +216,27 @@ hid_device_t *hid_open_path(const char *path) {
     if (HidD_GetPreparsedData(h, &ppd)) {
         HIDP_CAPS caps;
         if (HidP_GetCaps(ppd, &caps) == HIDP_STATUS_SUCCESS) {
-            dev->report_size = caps.InputReportByteLength;
-            if (dev->report_size > (int)sizeof(dev->last_report))
-                dev->report_size = sizeof(dev->last_report);
+            dev->input_report_size = caps.InputReportByteLength;
+            dev->output_report_size = caps.OutputReportByteLength;
+            if (dev->input_report_size > (int)sizeof(dev->last_report))
+                dev->input_report_size = sizeof(dev->last_report);
+            if (dev->output_report_size > (int)sizeof(dev->last_report))
+                dev->output_report_size = sizeof(dev->last_report);
+            dev->report_size = dev->output_report_size > 0
+                                   ? dev->output_report_size
+                                   : dev->input_report_size;
         }
         HidD_FreePreparsedData(ppd);
     }
+    if (dev->input_report_size <= 0) dev->input_report_size = 65;
+    if (dev->input_report_size > (int)sizeof(dev->last_report))
+        dev->input_report_size = sizeof(dev->last_report);
+    if (dev->output_report_size <= 0) dev->output_report_size = 65;
+    if (dev->output_report_size > (int)sizeof(dev->last_report))
+        dev->output_report_size = sizeof(dev->last_report);
     if (dev->report_size <= 0) dev->report_size = 64;
+    if (dev->report_size > (int)sizeof(dev->last_report))
+        dev->report_size = sizeof(dev->last_report);
 
     memset(&dev->read_ovl, 0, sizeof(dev->read_ovl));
     dev->read_ovl.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -243,7 +259,10 @@ nrf_ocd_status_t hid_read(hid_device_t *dev, uint8_t *buf, size_t buf_size,
                           size_t *out_len, int timeout_ms) {
     if (!dev || !buf) return NRF_OCD_ERR_INVALID_ARG;
     if (!dev->read_pending) {
-        if (!ReadFile(dev->handle, dev->last_report, sizeof(dev->last_report), &dev->last_len, &dev->read_ovl)) {
+        const DWORD read_len = (DWORD)(dev->input_report_size > 0
+                                           ? dev->input_report_size
+                                           : (int)sizeof(dev->last_report));
+        if (!ReadFile(dev->handle, dev->last_report, read_len, &dev->last_len, &dev->read_ovl)) {
             DWORD err = GetLastError();
             if (err != ERROR_IO_PENDING) return NRF_OCD_ERR_IO;
             dev->read_pending = true;
@@ -275,11 +294,18 @@ nrf_ocd_status_t hid_write(hid_device_t *dev, const uint8_t *data, size_t len,
                            int timeout_ms) {
     if (!dev || !data) return NRF_OCD_ERR_INVALID_ARG;
     (void)timeout_ms;
+    if (dev->output_report_size > 0 && len < (size_t)dev->output_report_size) {
+        return NRF_OCD_ERR_INVALID_ARG;
+    }
     DWORD written = 0;
     OVERLAPPED ovl = {0};
     ovl.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     if (!WriteFile(dev->handle, data, (DWORD)len, &written, &ovl)) {
         if (GetLastError() != ERROR_IO_PENDING) {
+            if (HidD_SetOutputReport(dev->handle, (PVOID)data, (ULONG)len)) {
+                CloseHandle(ovl.hEvent);
+                return NRF_OCD_OK;
+            }
             CloseHandle(ovl.hEvent);
             return NRF_OCD_ERR_IO;
         }
@@ -288,7 +314,10 @@ nrf_ocd_status_t hid_write(hid_device_t *dev, const uint8_t *data, size_t len,
             CloseHandle(ovl.hEvent);
             return NRF_OCD_ERR_TIMEOUT;
         }
-        GetOverlappedResult(dev->handle, &ovl, &written, FALSE);
+        if (!GetOverlappedResult(dev->handle, &ovl, &written, FALSE)) {
+            CloseHandle(ovl.hEvent);
+            return NRF_OCD_ERR_IO;
+        }
     }
     CloseHandle(ovl.hEvent);
     if (written == 0) return NRF_OCD_ERR_IO;

@@ -34,9 +34,10 @@
 extern "C" {
 #endif
 
-/* A HID report is short - 64 bytes for v1/v2, sometimes 16. We keep a
- * fixed maximum here. */
-#define NRF_OCD_HID_REPORT_SIZE 64
+/* A CMSIS-DAP HID payload is 64 bytes. Windows includes the leading report
+ * ID byte in HidP_*ReportByteLength, so keep room for 64 + report ID.
+ */
+#define NRF_OCD_HID_REPORT_SIZE 65
 
 typedef struct hid_device hid_device_t;
 
