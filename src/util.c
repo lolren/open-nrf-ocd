@@ -16,6 +16,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <setupapi.h>
 #else
 #include <sys/time.h>
 #include <unistd.h>
@@ -161,11 +162,18 @@ const char *nrf_ocd_strerror(nrf_ocd_status_t s) {
         case NRF_OCD_ERR_FILE_FORMAT:     return "File format error";
         case NRF_OCD_ERR_NO_MEM:          return "Out of memory";
         case NRF_OCD_ERR_CRC_MISMATCH:    return "CRC mismatch";
+        case NRF_OCD_ERR_FLASH_INIT:      return "Flash initialization failed";
+        case NRF_OCD_ERR_FLASH_ERASE:     return "Flash erase failed";
+        case NRF_OCD_ERR_FLASH_PROGRAM:   return "Flash programming failed";
     }
     return "Unknown";
 }
 
 #ifdef _WIN32
+/* Microsoft COM-port device interface GUID. */
+static const GUID GUID_DEVINTERFACE_COMPORT_LOCAL =
+    { 0x86E0D1E0, 0x8089, 0x11D0, { 0x9C, 0xE4, 0x08, 0x00, 0x3E, 0x30, 0x1F, 0x73 } };
+
 static const char *find_case_insensitive(const char *haystack, const char *needle) {
     if (!haystack || !needle || !needle[0]) return NULL;
     size_t needle_len = strlen(needle);
@@ -321,42 +329,101 @@ static int hid_serial_from_windows_com_device_id(const char *device_id,
     hid_enumerate_free(h);
     return 0;
 }
+
+static const char *normalize_windows_port_name(const char *port) {
+    if (!port) return NULL;
+    const char *p = port;
+    if ((p[0] == '\\' || p[0] == '/') &&
+        (p[1] == '\\' || p[1] == '/') &&
+        p[2] == '.' &&
+        (p[3] == '\\' || p[3] == '/')) {
+        p += 4;
+    }
+    const char *slash = strrchr(p, '\\');
+    const char *fslash = strrchr(p, '/');
+    if (fslash && (!slash || fslash > slash)) slash = fslash;
+    return slash ? slash + 1 : p;
+}
+
+static int port_device_id_from_setupapi(const char *port,
+                                        char *device_id, size_t device_id_size) {
+    if (!port || !device_id || device_id_size < 2) return 0;
+    const char *want_port = normalize_windows_port_name(port);
+    if (!want_port || !want_port[0]) return 0;
+
+    HDEVINFO dev_info = SetupDiGetClassDevsA(&GUID_DEVINTERFACE_COMPORT_LOCAL,
+                                             NULL, NULL,
+                                             DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+    if (dev_info == INVALID_HANDLE_VALUE) return 0;
+
+    int found = 0;
+    SP_DEVICE_INTERFACE_DATA if_data;
+    if_data.cbSize = sizeof(if_data);
+    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(dev_info, NULL,
+                                                  &GUID_DEVINTERFACE_COMPORT_LOCAL,
+                                                  i, &if_data); i++) {
+        DWORD required = 0;
+        SetupDiGetDeviceInterfaceDetailA(dev_info, &if_data, NULL, 0, &required, NULL);
+        if (required == 0) continue;
+
+        SP_DEVICE_INTERFACE_DETAIL_DATA_A *detail =
+            (SP_DEVICE_INTERFACE_DETAIL_DATA_A *)malloc(required);
+        if (!detail) continue;
+        detail->cbSize = sizeof(*detail);
+
+        SP_DEVINFO_DATA did;
+        memset(&did, 0, sizeof(did));
+        did.cbSize = sizeof(did);
+        if (!SetupDiGetDeviceInterfaceDetailA(dev_info, &if_data, detail,
+                                              required, NULL, &did)) {
+            free(detail);
+            continue;
+        }
+
+        char port_name[64] = {0};
+        HKEY key = SetupDiOpenDevRegKey(dev_info, &did, DICS_FLAG_GLOBAL, 0,
+                                        DIREG_DEV, KEY_READ);
+        if (key != INVALID_HANDLE_VALUE) {
+            DWORD type = 0;
+            DWORD len = sizeof(port_name);
+            if (RegQueryValueExA(key, "PortName", NULL, &type,
+                                 (LPBYTE)port_name, &len) != ERROR_SUCCESS ||
+                type != REG_SZ) {
+                port_name[0] = '\0';
+            }
+            RegCloseKey(key);
+        }
+
+        if (port_name[0] && nrf_ocd_strcasecmp(port_name, want_port) == 0) {
+            if (SetupDiGetDeviceInstanceIdA(dev_info, &did, device_id,
+                                            (DWORD)device_id_size, NULL)) {
+                found = 1;
+            }
+            free(detail);
+            break;
+        }
+
+        free(detail);
+    }
+
+    SetupDiDestroyDeviceInfoList(dev_info);
+    return found;
+}
 #endif
 
 int port_to_serial(const char *port, char *buf, size_t buf_size) {
     if (!port || !buf || buf_size < 2) return 0;
 #ifdef _WIN32
-    /* Windows: use WMI to find the COM interface, then map that composite
-     * USB interface back to its sibling CMSIS-DAP HID serial. Returning the
-     * COM interface instance ID directly breaks uploads when multiple Seeed
-     * boards are attached.
-     */
-    char cmd[512];
-    int n = snprintf(cmd, sizeof(cmd),
-                     "wmic path Win32_PnPEntity where \"Name like '%%%%%s%%%%'\" get DeviceID /format:csv",
-                     port);
-    if (n < 0 || (size_t)n >= sizeof(cmd)) return 0;
-    FILE *f = _popen(cmd, "r");
-    if (!f) return 0;
-    char line[512];
-    while (fgets(line, sizeof(line), f)) {
-        char *device_id = strchr(line, ',');
-        if (device_id) device_id++;
-        else device_id = line;
-        nrf_ocd_str_rstrip(device_id);
-        if (!find_case_insensitive(device_id, "VID_") ||
-            !find_case_insensitive(device_id, "PID_")) {
-            continue;
-        }
-
-        if (hid_serial_from_windows_com_device_id(device_id, buf, buf_size) ||
-            true_usb_serial_from_windows_device_id(device_id, buf, buf_size)) {
-            _pclose(f);
-            return 1;
-        }
+    char device_id[512] = {0};
+    if (!port_device_id_from_setupapi(port, device_id, sizeof(device_id))) {
+        return 0;
     }
-    _pclose(f);
-    return 0;
+    if (!find_case_insensitive(device_id, "VID_") ||
+        !find_case_insensitive(device_id, "PID_")) {
+        return 0;
+    }
+    return hid_serial_from_windows_com_device_id(device_id, buf, buf_size) ||
+           true_usb_serial_from_windows_device_id(device_id, buf, buf_size);
 #else
     const char *tty = port;
     const char *last_slash = strrchr(port, '/');

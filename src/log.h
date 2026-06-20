@@ -30,9 +30,16 @@ void nrf_ocd_log_set_quiet(bool quiet);
 /* Internal: format a single log line. All public macros below funnel through
  * nrf_ocd_log_emit(). Avoid calling it directly so that file/line info
  * stays accurate. */
+#if defined(__GNUC__) || defined(__clang__)
+#define NRF_OCD_PRINTF_FORMAT(fmt_index, first_arg) \
+    __attribute__((format(printf, fmt_index, first_arg)))
+#else
+#define NRF_OCD_PRINTF_FORMAT(fmt_index, first_arg)
+#endif
+
 void nrf_ocd_log_emit(log_level_t level, const char *file, int line,
                       const char *fmt, ...)
-    __attribute__((format(printf, 4, 5)));
+    NRF_OCD_PRINTF_FORMAT(4, 5);
 
 #define LOG_ERROR(...)   nrf_ocd_log_emit(LOG_LEVEL_ERROR,   __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_WARNING(...) nrf_ocd_log_emit(LOG_LEVEL_WARNING, __FILE__, __LINE__, __VA_ARGS__)

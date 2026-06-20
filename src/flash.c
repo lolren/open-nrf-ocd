@@ -34,6 +34,10 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
     
     const flash_algo_t *algo = flash_algo_for_target(t);
     if (!algo) return NRF_OCD_ERR_UNSUPPORTED;
+    if (opts->erase == FLASH_ERASE_SECTOR) {
+        LOG_ERROR("Sector erase is not implemented for this target; use chip or none");
+        return NRF_OCD_ERR_UNSUPPORTED;
+    }
 
     /* Halt the target before programming. */
     nrf_ocd_status_t st = flash_algo_halt(t);
@@ -57,7 +61,7 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
     }
 
     /* Erase if requested. */
-    if (opts->erase != FLASH_ERASE_NONE) {
+    if (opts->erase != FLASH_ERASE_NONE && !t->mass_erased) {
         printf("  Erasing chip... ");
         fflush(stdout);
         st = flash_algo_erase_all(t, algo);
@@ -68,6 +72,7 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
             return st;
         }
         printf("done\n");
+        t->mass_erased = true;
         
         /* Re-halt after erase. */
         st = flash_algo_halt(t);

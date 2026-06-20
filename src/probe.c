@@ -76,18 +76,15 @@ nrf_ocd_status_t probe_open(probe_info_t *out_info, hid_device_t **out_dev,
     }
     hid_device_t *dev = hid_open_path(info->path);
     if (!dev) return NRF_OCD_ERR_PROBE_OPEN;
-    /* Seeed XIAO nRF54 boards (VID=0x2886) have broken HID DAP_Transfer
-     * responses.  The working C implementation detects this by vendor ID
-     * and switches to the v2 bulk backend automatically. */
-    /* Seeed XIAO nRF54 boards and PicoProbe need bulk backend for
-     * reliable DAP_Connect responses. Only enable when libusb is in use. */
-    bool want_bulk = ((info->vendor_id == 0x2886) || 
-                      (info->vendor_id == 0x2E8A)) && 
-                     (strncmp(info->path, "usb:", 4) == 0);
+    /* Prefer CMSIS-DAP v2 bulk transports when enumeration found one. Seeed
+     * XIAO nRF54 probes expose HID too, but their HID path is not reliable
+     * enough for flashing on all hosts. */
+    bool want_bulk = info->is_dap_v2 ||
+                     strncmp(info->path, "usb:", 4) == 0 ||
+                     strncmp(info->path, "winusb:", 7) == 0;
     LOG_DEBUG("probe_open: vid=0x%04x pid=0x%04x path=%s want_bulk=%d",
               info->vendor_id, info->product_id, info->path, want_bulk ? 1 : 0);
     if (want_bulk) {
-        extern void hid_mark_bulk(hid_device_t *dev);
         hid_mark_bulk(dev);
     }
     if (out_info) {

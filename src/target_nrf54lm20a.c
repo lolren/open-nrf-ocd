@@ -54,7 +54,7 @@ static nrf_ocd_status_t rramc_wait_ready(target_t *t, uint32_t timeout_ms) {
     return NRF_OCD_ERR_TIMEOUT;
 }
 
-nrf_ocd_status_t rramc_config(target_t *t, uint32_t mode) {
+static nrf_ocd_status_t rramc_config(target_t *t, uint32_t mode) {
     nrf_ocd_status_t st = rramc_wait_ready(t, 1000);
     if (st != NRF_OCD_OK) return st;
     return target_mem_write_u32(t, RRAMC_CONFIG, mode);
@@ -70,7 +70,7 @@ extern nrf_ocd_status_t target_nrf54l_reset(target_t *t, target_reset_mode_t mod
 extern nrf_ocd_status_t target_nrf54l_halt(target_t *t);
 extern nrf_ocd_status_t target_nrf54l_resume(target_t *t);
 
-nrf_ocd_status_t target_nrf54lm20a_read_part_info(target_t *t) {
+static nrf_ocd_status_t target_nrf54lm20a_read_part_info(target_t *t) {
     nrf_ocd_status_t st = dap_dp_write(&t->dap, 0x8, AHB_AP_NUM);
     if (st != NRF_OCD_OK) return st;
     uint32_t partno = 0, variant = 0;

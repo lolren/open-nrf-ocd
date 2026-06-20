@@ -49,8 +49,6 @@ nrf_ocd_status_t flash_algo_erase_all(target_t *t, const flash_algo_t *algo);
 nrf_ocd_status_t flash_algo_program_page(target_t *t, const flash_algo_t *algo,
                                           uint32_t address, const uint8_t *data, size_t len);
 
-#endif /* FLASH_ALGO_NRF54L_H */
-
 /* Double-buffered flash programming: start async, wait later. */
 nrf_ocd_status_t flash_algo_start_program_page(target_t *t, const flash_algo_t *algo,
                                                 uint32_t address, const uint8_t *data, size_t len,
@@ -59,3 +57,5 @@ nrf_ocd_status_t flash_algo_wait_completion(target_t *t, uint32_t timeout_ms);
 
 /* Sector erase via flash algorithm. */
 nrf_ocd_status_t flash_algo_erase_sector(target_t *t, const flash_algo_t *algo, uint32_t address);
+
+#endif /* FLASH_ALGO_NRF54L_H */

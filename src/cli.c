@@ -36,7 +36,6 @@
 
 #include <ctype.h>
 #include <errno.h>
-#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,6 +95,7 @@ typedef struct {
     bool            no_reset;
     bool            reset_after;
     bool            halt;
+    const char     *legacy_file;
 } cli_ctx_t;
 
 static void cli_ctx_init(cli_ctx_t *c) {
@@ -122,6 +122,9 @@ static nrf_ocd_status_t open_target(cli_ctx_t *ctx, target_t *t) {
         hid_close(dev);
         return st;
     }
+    t->allow_mass_erase = ctx->auto_unlock ||
+                          ctx->flash_opts.erase == FLASH_ERASE_CHIP ||
+                          ctx->flash_opts.erase == FLASH_ERASE_AUTO;
     st = target_init(t);
     if (st != NRF_OCD_OK) {
         LOG_ERROR("target_init failed: %s", nrf_ocd_strerror(st));
@@ -206,10 +209,12 @@ static int cmd_load(cli_ctx_t *ctx, int argc, char **argv) {
 
 /* ----- cmd: erase -------------------------------------------------------- */
 static int cmd_erase(cli_ctx_t *ctx) {
+    /* The erase command itself is explicit authorization to unlock by erase. */
+    ctx->auto_unlock = true;
     target_t t;
     nrf_ocd_status_t st = open_target(ctx, &t);
     if (st != NRF_OCD_OK) return 1;
-    st = flash_chip_erase(&t);
+    st = t.mass_erased ? NRF_OCD_OK : flash_chip_erase(&t);
     if (st != NRF_OCD_OK) {
         LOG_ERROR("Erase failed: %s", nrf_ocd_strerror(st));
         target_close(&t);
@@ -380,8 +385,9 @@ static int apply_long_option(cli_ctx_t *ctx, int val, const char *arg) {
                      || nrf_ocd_str_endswith(arg, ".ihx")
                      || nrf_ocd_str_endswith(arg, ".elf")
                      || nrf_ocd_str_endswith(arg, ".bin"))) {
-                /* Filename at global scope - leave it for `load`. */
-                return -1; /* sentinel meaning "leave arg in argv" */
+                /* pyOCD compatibility: -f may specify the input file. */
+                ctx->legacy_file = arg;
+                return 0;
             }
             ctx->freq_khz = parse_int(arg, 1000);
             return 0;
@@ -402,53 +408,132 @@ static int apply_long_option(cli_ctx_t *ctx, int val, const char *arg) {
     }
 }
 
-static int parse_opts(int argc, char **argv, cli_ctx_t *ctx) {
-    static struct option long_opts[] = {
-        {"uid",         required_argument, 0, 'u'},
-        {"port",        required_argument, 0, 'p'},
-        {"target",      required_argument, 0, 't'},
-        {"index",       required_argument, 0, 1001},
-        {"frequency",   required_argument, 0, 'f'},
-        {"verbose",     no_argument,       0, 'v'},
-        {"quiet",       no_argument,       0, 'q'},
-        {"help",        no_argument,       0, 'h'},
-        {"auto-unlock", no_argument,       0, 2001},
-        {"reset",       no_argument,       0, 'R'},
-        {"no-reset",    no_argument,       0, 2002},
-        {"verify",      no_argument,       0, 2003},
-        {"no-verify",   no_argument,       0, 2004},
-        {"halt",        no_argument,       0, 2005},
-        {"erase",       required_argument, 0, 'e'},
-        {0, 0, 0, 0},
-    };
-    int c;
-    optind = 1;
-    while ((c = getopt_long(argc, argv, "+u:t:f:vqhe:Rp:", long_opts, NULL)) != -1) {
-        switch (c) {
-            case 'u': case 't': case 1001: case 'p': case 'f': case 'e':
-            case 'R': case 2001: case 2002: case 2003: case 2004: case 2005: {
-                int r = apply_long_option(ctx, c, optarg);
-                if (r > 0) return 1;
-                if (r < 0) {
-                    /* -f <file>: rewind optind so the file arg is left in argv. */
-                    optind -= 2;
-                }
-                break;
-            }
-            case 'v': {
-                log_level_t lvl = nrf_ocd_log_get_level();
-                if (lvl < LOG_LEVEL_TRACE) nrf_ocd_log_set_level(lvl + 1);
-                break;
-            }
-            case 'q': {
-                log_level_t lvl = nrf_ocd_log_get_level();
-                if (lvl > LOG_LEVEL_ERROR) nrf_ocd_log_set_level(lvl - 1);
-                break;
-            }
-            case 'h': print_usage(stdout); exit(0);
-            default:  LOG_ERROR("Unknown option"); print_usage(stderr); return 1;
+typedef struct {
+    const char *name;
+    int value;
+    bool requires_arg;
+} cli_long_option_t;
+
+static const cli_long_option_t cli_long_options[] = {
+    {"uid",         'u',  true},
+    {"port",        'p',  true},
+    {"target",      't',  true},
+    {"index",       1001, true},
+    {"frequency",   'f',  true},
+    {"verbose",     'v',  false},
+    {"quiet",       'q',  false},
+    {"help",        'h',  false},
+    {"auto-unlock", 2001, false},
+    {"reset",       'R',  false},
+    {"no-reset",    2002, false},
+    {"verify",      2003, false},
+    {"no-verify",   2004, false},
+    {"halt",        2005, false},
+    {"erase",       'e',  true},
+};
+
+static int cli_option_index = 1;
+
+static int apply_parser_option(cli_ctx_t *ctx, int value, const char *arg) {
+    if (value == 'v') {
+        log_level_t level = nrf_ocd_log_get_level();
+        if (level < LOG_LEVEL_TRACE) nrf_ocd_log_set_level(level + 1);
+        return 0;
+    }
+    if (value == 'q') {
+        log_level_t level = nrf_ocd_log_get_level();
+        if (level > LOG_LEVEL_ERROR) nrf_ocd_log_set_level(level - 1);
+        return 0;
+    }
+    if (value == 'h') {
+        print_usage(stdout);
+        exit(0);
+    }
+    return apply_long_option(ctx, value, arg);
+}
+
+static const cli_long_option_t *find_long_option(const char *name, size_t len) {
+    size_t count = sizeof(cli_long_options) / sizeof(cli_long_options[0]);
+    for (size_t i = 0; i < count; i++) {
+        if (strlen(cli_long_options[i].name) == len &&
+            strncmp(cli_long_options[i].name, name, len) == 0) {
+            return &cli_long_options[i];
         }
     }
+    return NULL;
+}
+
+static bool short_option_requires_arg(int value) {
+    return value == 'u' || value == 'p' || value == 't' ||
+           value == 'f' || value == 'e';
+}
+
+static bool short_option_is_valid(int value) {
+    return short_option_requires_arg(value) || value == 'v' || value == 'q' ||
+           value == 'h' || value == 'R';
+}
+
+static int parse_opts(int argc, char **argv, cli_ctx_t *ctx) {
+    int i = 1;
+    while (i < argc) {
+        const char *token = argv[i];
+        if (strcmp(token, "--") == 0) {
+            i++;
+            break;
+        }
+        if (token[0] != '-' || token[1] == '\0') break;
+
+        if (token[1] == '-') {
+            const char *name = token + 2;
+            const char *equals = strchr(name, '=');
+            size_t name_len = equals ? (size_t)(equals - name) : strlen(name);
+            const cli_long_option_t *option = find_long_option(name, name_len);
+            if (!option) {
+                LOG_ERROR("Unknown option: %s", token);
+                return 1;
+            }
+
+            const char *arg = equals ? equals + 1 : NULL;
+            if (option->requires_arg && !arg) {
+                if (++i >= argc) {
+                    LOG_ERROR("Option --%s requires an argument", option->name);
+                    return 1;
+                }
+                arg = argv[i];
+            } else if (!option->requires_arg && arg) {
+                LOG_ERROR("Option --%s does not take an argument", option->name);
+                return 1;
+            }
+            if (apply_parser_option(ctx, option->value, arg) != 0) return 1;
+            i++;
+            continue;
+        }
+
+        const char *shorts = token + 1;
+        while (*shorts) {
+            int value = (unsigned char)*shorts++;
+            if (!short_option_is_valid(value)) {
+                LOG_ERROR("Unknown option: -%c", value);
+                return 1;
+            }
+            const char *arg = NULL;
+            if (short_option_requires_arg(value)) {
+                if (*shorts) {
+                    arg = shorts;
+                    shorts += strlen(shorts);
+                } else {
+                    if (++i >= argc) {
+                        LOG_ERROR("Option -%c requires an argument", value);
+                        return 1;
+                    }
+                    arg = argv[i];
+                }
+            }
+            if (apply_parser_option(ctx, value, arg) != 0) return 1;
+        }
+        i++;
+    }
+    cli_option_index = i;
     return 0;
 }
 
@@ -460,10 +545,17 @@ int cli_run(int argc, char **argv) {
 
     /* Whatever non-option args remain after parse_opts() are the
      * subcommand and its arguments. */
-    if (optind >= argc) { print_usage(stderr); return 1; }
-    const char *cmd = argv[optind];
-    int cmd_argc = argc - optind - 1;
-    char **cmd_argv = argv + optind + 1;
+    if (cli_option_index >= argc) {
+        if (ctx.legacy_file) {
+            char *file_argv[1] = {(char *)ctx.legacy_file};
+            return cmd_load(&ctx, 1, file_argv);
+        }
+        print_usage(stderr);
+        return 1;
+    }
+    const char *cmd = argv[cli_option_index];
+    int cmd_argc = argc - cli_option_index - 1;
+    char **cmd_argv = argv + cli_option_index + 1;
 
     if (nrf_ocd_strcasecmp(cmd, "list") == 0) {
         return cmd_list();
@@ -493,7 +585,7 @@ int cli_run(int argc, char **argv) {
     } else if (nrf_ocd_str_endswith(cmd, ".hex") || nrf_ocd_str_endswith(cmd, ".ihx")
             || nrf_ocd_str_endswith(cmd, ".elf") || nrf_ocd_str_endswith(cmd, ".bin")) {
         /* Bare filename - default to load. */
-        return cmd_load(&ctx, cmd_argc + 1, argv + optind);
+        return cmd_load(&ctx, cmd_argc + 1, argv + cli_option_index);
     } else {
         LOG_ERROR("Unknown command: %s", cmd);
         print_usage(stderr);

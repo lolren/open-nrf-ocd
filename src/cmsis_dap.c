@@ -11,8 +11,10 @@
  * of the file do the encoding.
  */
 #include "cmsis_dap.h"
+#include "dap.h"
 #include "log.h"
 #include "nrf_ocd.h"
+#include "swd.h"
 #include "util.h"
 
 #include <stdio.h>
@@ -36,7 +38,7 @@ static nrf_ocd_status_t send_recv(cmsis_dap_t *dap, const uint8_t *request,
          * then read the response. Bulk responses start with the command
          * echo byte; callers expect rsp_buf[0] to be the first response
          * byte after that echo, so we strip it. */
-        if (req_len < 1 || req_len > NRF_OCD_HID_REPORT_SIZE) {
+        if (req_len < 1 || req_len > sizeof(dap->cmd_buf)) {
             return NRF_OCD_ERR_INVALID_ARG;
         }
         for (int attempt = 0; attempt < 2; attempt++) {
@@ -180,7 +182,7 @@ nrf_ocd_status_t cmsis_dap_open(cmsis_dap_t *dap, hid_device_t *dev) {
             for (size_t k = 0; k < info_ids[i].value_size && k < len && (1 + k) < sizeof(dap->rsp_buf); k++) {
                 value |= (uint32_t)dap->rsp_buf[1 + k] << (8 * k);
             }
-            if (info_ids[i].id == 0xF0) {
+            if (info_ids[i].id == 0xFE) {
                 dap->packet_count = (int)value;
             } else {
                 dap->packet_size = (int)value;
@@ -443,7 +445,6 @@ nrf_ocd_status_t cmsis_dap_transfer(cmsis_dap_t *dap, dap_dp_ap_t dp_ap,
     if (ack == DAP_TRANSFER_ERROR) return NRF_OCD_ERR_PROTOCOL;
     if (ack == DAP_TRANSFER_NO_ACK) {
         LOG_DEBUG("DAP_Transfer NO_ACK on addr 0x%x - retrying with SWD_SEQUENCE line reset", (unsigned)addr);
-        extern nrf_ocd_status_t swd_line_reset_swd_sequence(cmsis_dap_t *);
         nrf_ocd_status_t rst = swd_line_reset_swd_sequence(dap);
         if (rst != NRF_OCD_OK) {
             rst = swd_line_reset(dap);

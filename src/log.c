@@ -8,7 +8,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 static log_level_t g_log_level = LOG_LEVEL_INFO;
 static bool        g_log_quiet = false;

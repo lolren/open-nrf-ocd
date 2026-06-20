@@ -129,7 +129,7 @@ static nrf_ocd_status_t core_reg_write(target_t *t, uint8_t reg, uint32_t data) 
     
     /* Poll DHCSR for S_REGRDY. */
     uint64_t deadline = nrf_ocd_monotonic_ms() + 100;
-    uint32_t dhcsr;
+    uint32_t dhcsr = 0;
     while (nrf_ocd_monotonic_ms() < deadline) {
         st = dap_mem_read(dap, 0, DHCSR, &dhcsr, 4);
         if (st != NRF_OCD_OK) return st;
@@ -153,7 +153,7 @@ static nrf_ocd_status_t core_reg_read(target_t *t, uint8_t reg, uint32_t *data) 
     
     /* Poll DHCSR for S_REGRDY. */
     uint64_t deadline = nrf_ocd_monotonic_ms() + 100;
-    uint32_t dhcsr;
+    uint32_t dhcsr = 0;
     while (nrf_ocd_monotonic_ms() < deadline) {
         st = dap_mem_read(dap, 0, DHCSR, &dhcsr, 4);
         if (st != NRF_OCD_OK) return st;

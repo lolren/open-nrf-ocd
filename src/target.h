@@ -45,6 +45,10 @@ typedef struct {
     uint32_t           demcr;
     /* Whether the target is currently halted. */
     bool               halted;
+    /* Destructive unlock must be explicitly authorized by the CLI. */
+    bool               allow_mass_erase;
+    /* Avoid erasing twice when unlock itself already performed a chip erase. */
+    bool               mass_erased;
 } target_t;
 
 struct target_ops {

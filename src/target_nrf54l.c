@@ -66,6 +66,14 @@
 
 #define MASS_ERASE_TIMEOUT_MS 30000
 
+/* Shared with the LM20A target implementation. */
+nrf_ocd_status_t target_nrf54l_init(target_t *t);
+nrf_ocd_status_t target_nrf54l_check_security(target_t *t);
+nrf_ocd_status_t target_nrf54l_mass_erase(target_t *t);
+nrf_ocd_status_t target_nrf54l_reset(target_t *t, target_reset_mode_t mode);
+nrf_ocd_status_t target_nrf54l_halt(target_t *t);
+nrf_ocd_status_t target_nrf54l_resume(target_t *t);
+
 /* Wait for NVMC_READY to be 1. */
 static nrf_ocd_status_t nvmc_wait_ready(target_t *t, uint32_t timeout_ms) {
     uint64_t deadline = nrf_ocd_monotonic_ms() + timeout_ms;
@@ -79,7 +87,7 @@ static nrf_ocd_status_t nvmc_wait_ready(target_t *t, uint32_t timeout_ms) {
     return NRF_OCD_ERR_TIMEOUT;
 }
 
-nrf_ocd_status_t nvmc_config(target_t *t, uint32_t mode) {
+static nrf_ocd_status_t nvmc_config(target_t *t, uint32_t mode) {
     nrf_ocd_status_t st = nvmc_wait_ready(t, 1000);
     if (st != NRF_OCD_OK) return st;
     return target_mem_write_u32(t, NVMC_CONFIG, mode);
@@ -101,7 +109,7 @@ static nrf_ocd_status_t ctrl_ap_write(target_t *t, uint8_t reg, uint32_t value) 
 
 /* Read DP_TARGETID (register 0x4 in DP bank 1). pyOCD uses this to
  * identify Nordic devices: bits 11:0 = 0x289, bits 19:16 = 0xC. */
-nrf_ocd_status_t read_dp_targetid(target_t *t, uint32_t *targetid) {
+static nrf_ocd_status_t read_dp_targetid(target_t *t, uint32_t *targetid) {
     nrf_ocd_status_t st = dap_dp_write(&t->dap, 0x8, 1 << 4);  /* bank 1 */
     if (st != NRF_OCD_OK) return st;
     st = dap_dp_read(&t->dap, 0x4, targetid);
@@ -110,7 +118,7 @@ nrf_ocd_status_t read_dp_targetid(target_t *t, uint32_t *targetid) {
     return dap_dp_write(&t->dap, 0x8, 0);
 }
 
-nrf_ocd_status_t target_nrf54l_swd_connect(target_t *t) {
+static nrf_ocd_status_t target_nrf54l_swd_connect(target_t *t) {
     /* Matches the EXACT sequence from the pre-built binary's nrf_swd_connect(). */
     nrf_ocd_status_t st;
     uint32_t ctrl_stat, idr;
@@ -234,7 +242,11 @@ nrf_ocd_status_t target_nrf54l_check_security(target_t *t) {
         LOG_INFO("Target is not in a secure state (CSW.DeviceEn=1)");
         return NRF_OCD_OK;
     }
-    LOG_WARNING("APPROTECT enabled: attempting mass erase to unlock");
+    if (!t->allow_mass_erase) {
+        LOG_ERROR("APPROTECT is enabled; use --auto-unlock or request a chip erase to unlock");
+        return NRF_OCD_ERR_LOCKED;
+    }
+    LOG_WARNING("APPROTECT enabled: mass-erasing target to unlock");
     return target_nrf54l_mass_erase(t);
 }
 
@@ -287,6 +299,7 @@ nrf_ocd_status_t target_nrf54l_mass_erase(target_t *t) {
     /* Power-up the debug domain again. */
     st = target_nrf54l_init(t);
     if (st != NRF_OCD_OK) return st;
+    t->mass_erased = true;
     LOG_INFO("Mass erase complete");
     return NRF_OCD_OK;
 }

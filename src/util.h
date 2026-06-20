@@ -83,6 +83,9 @@ bool  nrf_ocd_str_endswith(const char *s, const char *suffix);
 bool  nrf_ocd_str_startswith(const char *s, const char *prefix);
 void  nrf_ocd_str_rstrip(char *s);
 
+/* Resolve a CMSIS-DAP serial from a tty/COM device path. */
+int port_to_serial(const char *port, char *buf, size_t buf_size);
+
 /* ----- Hex/byte helpers ---------------------------------------------------- */
 void nrf_ocd_hex_dump(const void *data, size_t size, size_t base_addr, FILE *out);
 
@@ -94,6 +97,3 @@ uint8_t nrf_ocd_rev8(uint8_t v);
 #endif
 
 #endif /* NRF_OCD_UTIL_H */
-
-/* Resolve CMSIS-DAP serial from tty device path. Returns 1 on success. */
-int port_to_serial(const char *port, char *buf, size_t buf_size);

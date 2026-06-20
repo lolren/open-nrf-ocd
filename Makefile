@@ -107,8 +107,8 @@ endif
 ifeq ($(TARGET_OS),windows)
     HID_SRC := $(SRC_DIR)/hid_windows.c
     HID_OBJ := $(OBJ_DIR)/hid_windows.o
-    OS_LDLIBS := -lhid -lsetupapi -lws2_32
-    OS_CFLAGS := -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0601
+    OS_LDLIBS := -lwinusb -lhid -lsetupapi -lcfgmgr32 -ladvapi32 -lws2_32
+    OS_CFLAGS := -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0601 -D__USE_MINGW_ANSI_STDIO=1
     BIN_EXT := .exe
 endif
 
@@ -147,7 +147,7 @@ WARN     := -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-align \
             -Wuninitialized -Wconversion -Wno-sign-conversion \
             -Wformat=2
 STD      := -std=c11
-DEFS     := -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DNRF_OCD_VERSION=\"0.1.0\"
+DEFS     := -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DNRF_OCD_VERSION=\"0.3.1\"
 
 ifeq ($(DEBUG),1)
     OPT     := -O0 -g3
