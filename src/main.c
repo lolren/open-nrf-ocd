@@ -1,3 +1,4 @@
+#include "version.h"
 /* main.c - nrf_ocd entry point. */
 #include "cli.h"
 #include "hid.h"
