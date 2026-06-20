@@ -55,6 +55,12 @@ static uint32_t parse_u32(const char *s, uint32_t dflt) {
     return (uint32_t)strtoul(s, NULL, 0);
 }
 
+static target_type_t target_from_probe_vid_pid(uint16_t vid, uint16_t pid) {
+    if (vid == 0x2886U && pid == 0x0068U) return TARGET_NRF54LM20A;
+    if (vid == 0x2886U && pid == 0x0066U) return TARGET_NRF54L15;
+    return TARGET_NRF54L15;
+}
+
 /* ----- cmd: list ---------------------------------------------------------- */
 static int cmd_list(void) {
     probe_info_t probes[32];
@@ -73,7 +79,8 @@ static int cmd_list(void) {
     for (size_t i = 0; i < n; i++) {
         printf("  %-3zu %-50s %-12s %s\n",
                i, probes[i].product, probes[i].serial,
-               target_type_name(target_type_from_string("nrf54l15")));
+               target_type_name(target_from_probe_vid_pid(probes[i].vendor_id,
+                                                          probes[i].product_id)));
     }
     return 0;
 }

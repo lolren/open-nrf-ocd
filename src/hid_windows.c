@@ -118,7 +118,9 @@ const hid_device_info_t *hid_enumerate_next(hid_enumerate_handle_t *h) {
             memset(info, 0, sizeof(*info));
             info->vendor_id  = attr.VendorID;
             info->product_id = attr.ProductID;
-            wstr_to_str((const wchar_t *)detail->DevicePath, info->path, sizeof(info->path));
+            /* DevicePath is CHAR[] (ANSI) from SetupDiGetDeviceInterfaceDetailA.
+             * Copy directly — no wchar_t conversion needed. */
+            strncpy(info->path, detail->DevicePath, sizeof(info->path) - 1);
 
             wchar_t buf[256];
             if (HidD_GetSerialNumberString(h2, buf, sizeof(buf)))

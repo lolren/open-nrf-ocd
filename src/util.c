@@ -2,9 +2,13 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "util.h"
+#ifdef _WIN32
+#include "hid.h"
+#endif
 #include "nrf_ocd.h"
 
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -161,27 +165,229 @@ const char *nrf_ocd_strerror(nrf_ocd_status_t s) {
     return "Unknown";
 }
 
+#ifdef _WIN32
+static const char *find_case_insensitive(const char *haystack, const char *needle) {
+    if (!haystack || !needle || !needle[0]) return NULL;
+    size_t needle_len = strlen(needle);
+    for (const char *p = haystack; *p; p++) {
+        if (nrf_ocd_strncasecmp(p, needle, needle_len) == 0) return p;
+    }
+    return NULL;
+}
+
+static void lowercase_copy(char *dst, size_t dst_size, const char *src) {
+    if (!dst || dst_size == 0) return;
+    size_t i = 0;
+    if (src) {
+        for (; src[i] && (i + 1) < dst_size; i++) {
+            dst[i] = (char)tolower((unsigned char)src[i]);
+        }
+    }
+    dst[i] = '\0';
+}
+
+static int parse_windows_usb_vid_pid(const char *device_id,
+                                     char *vid, size_t vid_size,
+                                     char *pid, size_t pid_size) {
+    if (!device_id || !vid || !pid || vid_size < 5 || pid_size < 5) return 0;
+    const char *vid_pos = find_case_insensitive(device_id, "VID_");
+    const char *pid_pos = find_case_insensitive(device_id, "PID_");
+    if (!vid_pos || !pid_pos) return 0;
+    vid_pos += 4;
+    pid_pos += 4;
+    for (size_t i = 0; i < 4; i++) {
+        if (!isxdigit((unsigned char)vid_pos[i]) || !isxdigit((unsigned char)pid_pos[i])) {
+            return 0;
+        }
+        vid[i] = (char)tolower((unsigned char)vid_pos[i]);
+        pid[i] = (char)tolower((unsigned char)pid_pos[i]);
+    }
+    vid[4] = '\0';
+    pid[4] = '\0';
+    return 1;
+}
+
+static int extract_windows_usb_instance_stem(const char *device_id,
+                                             char *stem, size_t stem_size) {
+    if (!device_id || !stem || stem_size < 2) return 0;
+    const char *instance = strrchr(device_id, '\\');
+    if (!instance || !instance[1]) return 0;
+    instance++;
+
+    char tmp[128];
+    lowercase_copy(tmp, sizeof(tmp), instance);
+    nrf_ocd_str_rstrip(tmp);
+
+    /* Composite COM ports normally end in "&0002" while the CMSIS-DAP HID
+     * sibling ends in "&0000". Matching only the shared parent stem maps
+     * COMx back to the correct HID probe serial.
+     */
+    char *last_amp = strrchr(tmp, '&');
+    if (last_amp && strlen(last_amp + 1) == 4) {
+        bool four_hex = true;
+        for (size_t i = 0; i < 4; i++) {
+            if (!isxdigit((unsigned char)last_amp[1 + i])) {
+                four_hex = false;
+                break;
+            }
+        }
+        if (four_hex) *last_amp = '\0';
+    }
+
+    if (tmp[0] == '\0' || strlen(tmp) >= stem_size) return 0;
+    strcpy(stem, tmp);
+    return 1;
+}
+
+static int true_usb_serial_from_windows_device_id(const char *device_id,
+                                                  char *buf, size_t buf_size) {
+    if (!device_id || !buf || buf_size < 2) return 0;
+    const char *serial = strrchr(device_id, '\\');
+    if (!serial || !serial[1]) return 0;
+    serial++;
+
+    char tmp[128];
+    lowercase_copy(tmp, sizeof(tmp), serial);
+    nrf_ocd_str_rstrip(tmp);
+    if (tmp[0] == '\0') return 0;
+
+    /* A real DAPLink serial is a simple serial string. Composite interface
+     * instance IDs contain '&' and are not usable as CMSIS-DAP serials.
+     */
+    if (strchr(tmp, '&')) return 0;
+
+    size_t len = strlen(serial);
+    while (len > 0 && (serial[len - 1] == '\n' || serial[len - 1] == '\r' ||
+                       serial[len - 1] == ' ' || serial[len - 1] == '\t')) {
+        len--;
+    }
+    if (len == 0 || len >= buf_size) return 0;
+    memcpy(buf, serial, len);
+    buf[len] = '\0';
+    return 1;
+}
+
+static int hid_serial_from_windows_com_device_id(const char *device_id,
+                                                 char *buf, size_t buf_size) {
+    if (!device_id || !buf || buf_size < 2) return 0;
+
+    char vid[5] = {0};
+    char pid[5] = {0};
+    char stem[128] = {0};
+    if (!parse_windows_usb_vid_pid(device_id, vid, sizeof(vid), pid, sizeof(pid))) {
+        return 0;
+    }
+    (void)extract_windows_usb_instance_stem(device_id, stem, sizeof(stem));
+
+    char vid_pid_needle[32];
+    snprintf(vid_pid_needle, sizeof(vid_pid_needle), "vid_%s&pid_%s", vid, pid);
+
+    hid_enumerate_handle_t *h = hid_enumerate_start();
+    if (!h) return 0;
+
+    const hid_device_info_t *info;
+    char single_vid_pid_serial[64] = {0};
+    size_t vid_pid_matches = 0;
+    while ((info = hid_enumerate_next(h)) != NULL) {
+        char path_lower[512];
+        lowercase_copy(path_lower, sizeof(path_lower), info->path);
+        if (!strstr(path_lower, vid_pid_needle)) continue;
+
+        vid_pid_matches++;
+        if (single_vid_pid_serial[0] == '\0' && info->serial_number[0]) {
+            strncpy(single_vid_pid_serial, info->serial_number,
+                    sizeof(single_vid_pid_serial) - 1);
+        }
+
+        if (stem[0] && strstr(path_lower, stem) && info->serial_number[0]) {
+            size_t len = strlen(info->serial_number);
+            if (len > 0 && len < buf_size) {
+                memcpy(buf, info->serial_number, len + 1);
+                hid_enumerate_free(h);
+                return 1;
+            }
+        }
+    }
+
+    if (vid_pid_matches == 1 && single_vid_pid_serial[0]) {
+        size_t len = strlen(single_vid_pid_serial);
+        if (len > 0 && len < buf_size) {
+            memcpy(buf, single_vid_pid_serial, len + 1);
+            hid_enumerate_free(h);
+            return 1;
+        }
+    }
+
+    hid_enumerate_free(h);
+    return 0;
+}
+#endif
+
 int port_to_serial(const char *port, char *buf, size_t buf_size) {
     if (!port || !buf || buf_size < 2) return 0;
 #ifdef _WIN32
-    (void)port; (void)buf; (void)buf_size;
+    /* Windows: use WMI to find the COM interface, then map that composite
+     * USB interface back to its sibling CMSIS-DAP HID serial. Returning the
+     * COM interface instance ID directly breaks uploads when multiple Seeed
+     * boards are attached.
+     */
+    char cmd[512];
+    int n = snprintf(cmd, sizeof(cmd),
+                     "wmic path Win32_PnPEntity where \"Name like '%%%%%s%%%%'\" get DeviceID /format:csv",
+                     port);
+    if (n < 0 || (size_t)n >= sizeof(cmd)) return 0;
+    FILE *f = _popen(cmd, "r");
+    if (!f) return 0;
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+        char *device_id = strchr(line, ',');
+        if (device_id) device_id++;
+        else device_id = line;
+        nrf_ocd_str_rstrip(device_id);
+        if (!find_case_insensitive(device_id, "VID_") ||
+            !find_case_insensitive(device_id, "PID_")) {
+            continue;
+        }
+
+        if (hid_serial_from_windows_com_device_id(device_id, buf, buf_size) ||
+            true_usb_serial_from_windows_device_id(device_id, buf, buf_size)) {
+            _pclose(f);
+            return 1;
+        }
+    }
+    _pclose(f);
     return 0;
 #else
     const char *tty = port;
     const char *last_slash = strrchr(port, '/');
     if (last_slash) tty = last_slash + 1;
     if (*tty == '\0') return 0;
-    char syspath[512];
-    int n = snprintf(syspath, sizeof(syspath),
-                     "/sys/class/tty/%s/../../../serial", tty);
-    if (n < 0 || (size_t)n >= sizeof(syspath)) return 0;
-    FILE *f = fopen(syspath, "r");
-    if (!f) {
-        n = snprintf(syspath, sizeof(syspath),
-                     "/sys/class/tty/%s/device/../serial", tty);
-        if (n < 0 || (size_t)n >= sizeof(syspath)) return 0;
-        f = fopen(syspath, "r");
+
+    char device_path[512];
+    int n = snprintf(device_path, sizeof(device_path), "/sys/class/tty/%s/device", tty);
+    if (n < 0 || (size_t)n >= sizeof(device_path)) return 0;
+
+    char current[PATH_MAX];
+    if (!realpath(device_path, current)) return 0;
+
+    FILE *f = NULL;
+    for (unsigned i = 0; i < 8; i++) {
+        const char *base = strrchr(current, '/');
+        base = base ? base + 1 : current;
+        if (nrf_ocd_str_startswith(base, "usb")) break;
+
+        char serial_path[PATH_MAX];
+        n = snprintf(serial_path, sizeof(serial_path), "%s/serial", current);
+        if (n >= 0 && (size_t)n < sizeof(serial_path)) {
+            f = fopen(serial_path, "r");
+            if (f) break;
+        }
+
+        char *last = strrchr(current, '/');
+        if (!last || last == current) break;
+        *last = '\0';
     }
+
     if (!f) return 0;
     if (!fgets(buf, (int)buf_size, f)) { fclose(f); return 0; }
     fclose(f);
