@@ -150,6 +150,18 @@ make test
 Runs unit tests for the Intel HEX parser, ELF parser and target type
 lookup.
 
+## Arduino Core
+
+This tool is the default uploader for the
+[nRF54L15 Clean Arduino Core](https://github.com/lolren/nrf54-arduino-core).
+Install the core and use **Tools → Upload Method → nRF OCD (Native)**
+to flash via nrf_ocd without any Python dependency.
+
+```bash
+arduino-cli core update-index && arduino-cli core install nrf54l15clean:nrf54l15clean@0.9.194
+nrf_ocd -p /dev/ttyACM0 -t nrf54lm20a -e chip -R load sketch.hex
+```
+
 ## Known limitations
 
 - **Speed**: Flash programming achieves ~3.3 kB/s (limited by per-page
