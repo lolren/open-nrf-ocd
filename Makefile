@@ -147,7 +147,7 @@ WARN     := -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-align \
             -Wuninitialized -Wconversion -Wno-sign-conversion \
             -Wformat=2
 STD      := -std=c11
-DEFS     := -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DNRF_OCD_VERSION=\"0.3.1\"
+DEFS     := -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DNRF_OCD_VERSION=\"0.3.2\"
 
 ifeq ($(DEBUG),1)
     OPT     := -O0 -g3
@@ -235,7 +235,7 @@ print-vars:
 # Linux x86_64 (native, with libusb)
 linux-x64:
 	$(MAKE) clean
-	$(MAKE) USE_LIBUSB=1 CC=/usr/bin/gcc-13
+	$(MAKE) USE_LIBUSB=1 CC=/usr/bin/gcc
 	cp build/bin/nrf_ocd build/bin/nrf_ocd-linux-x64
 
 # Linux aarch64 (cross, HID backend)

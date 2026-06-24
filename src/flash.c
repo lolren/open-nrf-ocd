@@ -23,6 +23,10 @@
 /* Forward declaration. */
 static nrf_ocd_status_t verify_segment(target_t *t, const hex_segment_t *seg);
 
+enum {
+    FLASH_PROGRAM_CHUNK_BYTES = 1024,
+};
+
 /* Main flash write entry point. */
 nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
                                    const flash_options_t *opts) {
@@ -95,20 +99,12 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
     for (size_t i = 0; i < img->count; i++) {
         const hex_segment_t *seg = &img->segments[i];
         
-        /* Program in page-sized chunks. */
+        /* Program in chunks accepted reliably by the nRF54L flash algorithm.
+         * Larger writes reduce host round-trips; readback verification stays
+         * separate so Arduino can choose fast uploads by passing --no-verify. */
         size_t off = 0;
         while (off < seg->size) {
-            /* Program a single word at a time (flash algorithm page_size=4).
-             * Larger chunks cause verify failures because the algorithm only processes
-             * min_program_length (4) bytes per call. */
-            /* Use 256-byte chunks for good throughput and reliability.
-             * The page buffer at 0x20001000 is RAM and can hold any amount of data.
-             * The algorithm's program_page function loops processing 'len' bytes. */
-            /* Use 4096-byte chunks matching the flash region block size (pyOCD compatible). */
-            /* Use 512-byte chunks for good speed and reliability. */
-            /* Use 1024-byte chunks for better throughput. */
-            /* Use 2048-byte chunks. */
-            size_t chunk = 1024;
+            size_t chunk = FLASH_PROGRAM_CHUNK_BYTES;
             if (chunk > seg->size - off) chunk = seg->size - off;
             
             st = flash_algo_program_page(t, algo, seg->address + (uint32_t)off,
@@ -122,10 +118,7 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
             
             off += chunk;
             done += chunk;
-            
-            /* Small delay between pages to let NVMC settle. */
-            nrf_ocd_sleep_ms(1);
-            
+
             uint64_t now = nrf_ocd_monotonic_ms();
             if (now - last_log_ms > 200) {
                 int _xx = (int)(done * 100 / total);
@@ -160,24 +153,30 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
     return NRF_OCD_OK;
 }
 
-/* Verify a segment by reading back in 64-byte chunks. */
+/* Verify a segment with conservative word reads. Some Seeed CMSIS-DAP bridge
+ * paths timeout on AP memory TransferBlock reads, so keep readback robust here
+ * and let callers opt out with --no-verify when upload speed matters. */
 static nrf_ocd_status_t verify_segment(target_t *t, const hex_segment_t *seg) {
-    size_t off = 0;
-    while (off < seg->size) {
-        /* Use single-word reads since bulk TransferBlock may timeout. */
-        uint32_t expected, actual;
-        memcpy(&expected, seg->data + off, 4);
+    for (size_t off = 0; off < seg->size; off += 4) {
+        uint8_t expected_bytes[4] = { 0xFF, 0xFF, 0xFF, 0xFF };
+        uint32_t actual = 0;
+        size_t tail = seg->size - off;
+        if (tail > sizeof(expected_bytes)) tail = sizeof(expected_bytes);
+        memcpy(expected_bytes, seg->data + off, tail);
         nrf_ocd_status_t st = target_mem_read_u32(t, seg->address + (uint32_t)off, &actual);
         if (st != NRF_OCD_OK) {
             LOG_ERROR("Verify read failed at 0x%08zx", (size_t)seg->address + off);
             return st;
         }
-        if (actual != expected) {
+        uint8_t actual_bytes[4];
+        memcpy(actual_bytes, &actual, sizeof(actual_bytes));
+        if (memcmp(actual_bytes, expected_bytes, tail) != 0) {
+            uint32_t expected = 0;
+            memcpy(&expected, expected_bytes, sizeof(expected));
             LOG_ERROR("Verify mismatch at 0x%08zx: got 0x%08x, expected 0x%08x",
                       (size_t)seg->address + off, actual, expected);
             return NRF_OCD_ERR_CRC_MISMATCH;
         }
-        off += 4;
     }
     return NRF_OCD_OK;
 }

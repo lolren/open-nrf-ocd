@@ -13,8 +13,8 @@ Seeed XIAO nRF54L15 (`VID=0x2886 PID=0x0066`) and Seeed XIAO nRF54LM20A
 | DP/AP register read/write                | ✅ Works   | |
 | Memory read/write via AHB-AP             | ✅ Works   | 32-bit, auto-increment |
 | Flash mass-erase via CTRL-AP             | ✅ Works   | |
-| Flash programming via flash algorithm    | ✅ Works   | ~3.3 kB/s |
-| Flash verify (read-back)                  | ✅ Works   | Word-by-word verification |
+| Flash programming via flash algorithm    | ✅ Works   | ~14 kB/s with `--no-verify` on XIAO nRF54LM20A |
+| Flash verify (read-back)                  | ✅ Works   | Word-by-word verification, slower but robust |
 | Commander REPL                           | ✅ Works   | Interactive memory debug |
 | ELF + Intel HEX loader                   | ✅ Works   | |
 | Both targets (L15 & LM20A)               | ✅ Works   | Auto-selects flash controller |
@@ -56,8 +56,11 @@ nrf_ocd list
 # Show target info (reads UICR.PARTNO)
 nrf_ocd -t nrf54l15 -u 761FDE87 info
 
-# Program flash with chip erase and reset
+# Program flash with chip erase, reset, and readback verification
 nrf_ocd -t nrf54l15 -u 761FDE87 -e chip -R load firmware.hex
+
+# Fast upload path used by the Arduino core
+nrf_ocd -t nrf54l15 -u 761FDE87 -e chip -R --no-verify load firmware.hex
 
 # Mass erase the chip
 nrf_ocd -t nrf54l15 -u 761FDE87 erase
@@ -159,14 +162,15 @@ to flash via nrf_ocd without any Python dependency.
 
 ```bash
 arduino-cli core update-index && arduino-cli core install nrf54l15clean:nrf54l15clean@0.9.194
-nrf_ocd -p /dev/ttyACM0 -t nrf54lm20a -e chip -R load sketch.hex
+nrf_ocd -p /dev/ttyACM0 -t nrf54lm20a -e chip -R --no-verify load sketch.hex
 ```
 
 ## Known limitations
 
-- **Speed**: Flash programming achieves ~3.3 kB/s (limited by per-page
-  function call overhead in the flash algorithm). pyOCD achieves higher
-  throughput through double-buffering optimizations.
+- **Speed**: The fast Arduino upload path uses `--no-verify` and was measured
+  at about 14 kB/s on XIAO nRF54LM20A with a 104 KB image. Full readback
+  verification is still supported with `--verify`, but remains slower because
+  the safe verifier uses conservative word reads.
 - **DAP_TransferBlock on HID**: The SAMD11 USB bridge truncates HID
   responses to 63 bytes. The bulk backend (USE_LIBUSB=1) avoids this
   issue. When using HID, the code tolerates truncated responses.

@@ -496,6 +496,12 @@ nrf_ocd_status_t cmsis_dap_transfer_block(cmsis_dap_t *dap, dap_dp_ap_t dp_ap,
         reg |= addr & 0x0C;
         dap->cmd_buf[4] = reg;
         size_t chunk = n - idx;
+        size_t max_packet_words = 1;
+        if (ps > 5) {
+            max_packet_words = (size_t)(ps - (rnw ? 3 : 5)) / 4;
+            if (max_packet_words == 0) max_packet_words = 1;
+        }
+        if (chunk > max_packet_words) chunk = max_packet_words;
         size_t req_len = 5;
         if (!rnw && wr_data) {
             uint8_t *p = &dap->cmd_buf[5];
@@ -512,8 +518,8 @@ nrf_ocd_status_t cmsis_dap_transfer_block(cmsis_dap_t *dap, dap_dp_ap_t dp_ap,
             size_t max_chunk = (size_t)(ps - 5) / 4;
             if (chunk > max_chunk) chunk = max_chunk;
             req_len = 5 + (rnw ? 0 : chunk * 4);
-            write_le16(&dap->cmd_buf[2], (uint16_t)chunk);
         }
+        write_le16(&dap->cmd_buf[2], (uint16_t)chunk);
         size_t expect = 3 + (rnw ? chunk * 4 : 0);
         nrf_ocd_status_t st = send_recv(dap, dap->cmd_buf, req_len, expect);
         if (st != NRF_OCD_OK) return st;
