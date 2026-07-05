@@ -106,7 +106,16 @@ static void cli_ctx_init(cli_ctx_t *c) {
     c->flash_opts.verify = true;
 }
 
-static nrf_ocd_status_t open_target(cli_ctx_t *ctx, target_t *t) {
+static bool open_target_retryable(nrf_ocd_status_t st) {
+    return st == NRF_OCD_ERR_IO ||
+           st == NRF_OCD_ERR_TIMEOUT ||
+           st == NRF_OCD_ERR_PROBE_IO ||
+           st == NRF_OCD_ERR_PROBE_OPEN ||
+           st == NRF_OCD_ERR_PROTOCOL ||
+           st == NRF_OCD_ERR_FAULT;
+}
+
+static nrf_ocd_status_t open_target_once(cli_ctx_t *ctx, target_t *t) {
     hid_device_t *dev = NULL;
     probe_info_t  info;
     memset(&info, 0, sizeof(info));
@@ -135,6 +144,19 @@ static nrf_ocd_status_t open_target(cli_ctx_t *ctx, target_t *t) {
         (void)t->ops->read_part_info(t);
     }
     return NRF_OCD_OK;
+}
+
+static nrf_ocd_status_t open_target(cli_ctx_t *ctx, target_t *t) {
+    nrf_ocd_status_t st = NRF_OCD_ERR_GENERIC;
+    for (int attempt = 0; attempt < 3; attempt++) {
+        st = open_target_once(ctx, t);
+        if (st == NRF_OCD_OK) return st;
+        if (!open_target_retryable(st) || attempt == 2) break;
+        LOG_WARNING("Probe/target handshake failed (%s); retrying",
+                    nrf_ocd_strerror(st));
+        nrf_ocd_sleep_ms((uint32_t)(250 * (attempt + 1)));
+    }
+    return st;
 }
 
 /* ----- cmd: info --------------------------------------------------------- */

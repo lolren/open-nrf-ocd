@@ -41,11 +41,15 @@ static nrf_ocd_status_t send_recv(cmsis_dap_t *dap, const uint8_t *request,
         if (req_len < 1 || req_len > sizeof(dap->cmd_buf)) {
             return NRF_OCD_ERR_INVALID_ARG;
         }
-        for (int attempt = 0; attempt < 2; attempt++) {
+        for (int attempt = 0; attempt < 4; attempt++) {
             nrf_ocd_status_t st = hid_write(dap->dev, request, req_len,
                                             CMSIS_DAP_BULK_TIMEOUT_MS);
             if (st != NRF_OCD_OK) {
-                if (attempt == 0) { nrf_ocd_sleep_ms(50); continue; }
+                hid_flush(dap->dev);
+                if (attempt < 3) {
+                    nrf_ocd_sleep_ms((uint32_t)(50 * (attempt + 1)));
+                    continue;
+                }
                 LOG_ERROR("bulk write failed for cmd 0x%02x: %s",
                           request[0], nrf_ocd_strerror(st));
                 return st;
@@ -54,7 +58,11 @@ static nrf_ocd_status_t send_recv(cmsis_dap_t *dap, const uint8_t *request,
             st = hid_read(dap->dev, dap->rsp_buf, sizeof(dap->rsp_buf), &got,
                           CMSIS_DAP_BULK_TIMEOUT_MS);
             if (st != NRF_OCD_OK) {
-                if (attempt == 0) { nrf_ocd_sleep_ms(50); continue; }
+                hid_flush(dap->dev);
+                if (attempt < 3) {
+                    nrf_ocd_sleep_ms((uint32_t)(50 * (attempt + 1)));
+                    continue;
+                }
                 LOG_ERROR("bulk read failed for cmd 0x%02x: %s",
                           request[0], nrf_ocd_strerror(st));
                 return st;
@@ -68,6 +76,7 @@ static nrf_ocd_status_t send_recv(cmsis_dap_t *dap, const uint8_t *request,
             if (payload >= expect_min_len) {
                 return NRF_OCD_OK;
             }
+            hid_flush(dap->dev);
             LOG_DEBUG("Bulk short response: %zu bytes for cmd 0x%02x (expect %zu)",
                       got, request[0], expect_min_len + 1);
         }
@@ -275,20 +284,18 @@ nrf_ocd_status_t cmsis_dap_swj_clock(cmsis_dap_t *dap, uint32_t hz) {
     return NRF_OCD_OK;
 }
 
-nrf_ocd_status_t cmsis_dap_swj_pins(cmsis_dap_t *dap, uint8_t out, uint8_t *pin,
+nrf_ocd_status_t cmsis_dap_swj_pins(cmsis_dap_t *dap, uint8_t out,
+                                    uint8_t select, uint8_t *pin,
                                     uint32_t wait_ms) {
     if (!dap) return NRF_OCD_ERR_INVALID_ARG;
     prepare_request(dap);
     dap->cmd_buf[0] = DAP_CMD_SWJ_PINS;
     dap->cmd_buf[1] = out;
-    write_le16(&dap->cmd_buf[2], (uint16_t)wait_ms);
-    nrf_ocd_status_t st = send_recv(dap, dap->cmd_buf, 4, 1);
+    dap->cmd_buf[2] = select;
+    write_le32(&dap->cmd_buf[3], wait_ms * 1000U);
+    nrf_ocd_status_t st = send_recv(dap, dap->cmd_buf, 7, 1);
     if (st != NRF_OCD_OK) return st;
     if (pin) *pin = dap->rsp_buf[0];
-    if ((dap->rsp_buf[0] & 0x80) == 0) {
-        /* No-connect / no-power. */
-        return NRF_OCD_ERR_PROTOCOL;
-    }
     return NRF_OCD_OK;
 }
 

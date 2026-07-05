@@ -30,7 +30,9 @@ nrf_ocd_status_t target_open(target_t *t, hid_device_t *dev, target_type_t type)
 
 void target_close(target_t *t) {
     if (!t) return;
+    hid_device_t *dev = t->dap.dev;
     cmsis_dap_close(&t->dap);
+    if (dev) hid_close(dev);
     memset(t, 0, sizeof(*t));
 }
 

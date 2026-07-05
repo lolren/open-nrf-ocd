@@ -463,6 +463,10 @@ nrf_ocd_status_t hid_write(hid_device_t *dev, const uint8_t *data, size_t len,
     return NRF_OCD_OK;
 }
 
+void hid_flush(hid_device_t *dev) {
+    (void)dev;
+}
+
 const char *hid_path(const hid_device_t *dev)     { return dev ? dev->path : ""; }
 const char *hid_serial(const hid_device_t *dev)   { return dev ? dev->serial : ""; }
 uint16_t    hid_vid(const hid_device_t *dev)      { return dev ? dev->vid : 0; }

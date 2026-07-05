@@ -118,7 +118,9 @@ bool             cmsis_dap_is_v2(const cmsis_dap_t *dap);
 nrf_ocd_status_t cmsis_dap_connect(cmsis_dap_t *dap, dap_port_t port);
 nrf_ocd_status_t cmsis_dap_disconnect(cmsis_dap_t *dap);
 nrf_ocd_status_t cmsis_dap_swj_clock(cmsis_dap_t *dap, uint32_t hz);
-nrf_ocd_status_t cmsis_dap_swj_pins(cmsis_dap_t *dap, uint8_t out, uint8_t *pin, uint32_t wait_ms);
+nrf_ocd_status_t cmsis_dap_swj_pins(cmsis_dap_t *dap, uint8_t out,
+                                    uint8_t select, uint8_t *pin,
+                                    uint32_t wait_ms);
 nrf_ocd_status_t cmsis_dap_swj_sequence(cmsis_dap_t *dap, const uint8_t *seq, size_t n_bits);
 /* SWD_Sequence sends bit sequences specifically for SWD (more reliable than
  * SWJ_Sequence on the XIAO nRF54 board). The format encodes multiple

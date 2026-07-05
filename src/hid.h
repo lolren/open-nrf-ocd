@@ -87,6 +87,10 @@ nrf_ocd_status_t hid_read(hid_device_t *dev, uint8_t *buf, size_t buf_size,
 nrf_ocd_status_t hid_write(hid_device_t *dev, const uint8_t *data, size_t len,
                            int timeout_ms);
 
+/* Drop stale input packets and clear a stalled transport when the backend can.
+ * Backends without a cheap non-blocking flush may implement this as a no-op. */
+void          hid_flush(hid_device_t *dev);
+
 /* ----- Helpers ------------------------------------------------------------- */
 const char *hid_path(const hid_device_t *dev);
 const char *hid_serial(const hid_device_t *dev);

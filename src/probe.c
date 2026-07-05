@@ -36,6 +36,40 @@ static bool is_known_vid(uint16_t vid) {
     return false;
 }
 
+static const hid_device_info_t *find_known_probe_by_index(unsigned index) {
+    hid_enumerate_handle_t *h = hid_enumerate_start();
+    if (!h) return NULL;
+    const hid_device_info_t *info;
+    unsigned filtered_index = 0;
+    static hid_device_info_t copy;
+    while ((info = hid_enumerate_next(h)) != NULL) {
+        if (!is_known_vid(info->vendor_id)) continue;
+        if (filtered_index++ == index) {
+            copy = *info;
+            hid_enumerate_free(h);
+            return &copy;
+        }
+    }
+    hid_enumerate_free(h);
+    return NULL;
+}
+
+static const hid_device_info_t *find_only_known_probe(void) {
+    hid_enumerate_handle_t *h = hid_enumerate_start();
+    if (!h) return NULL;
+    const hid_device_info_t *info;
+    static hid_device_info_t copy;
+    unsigned count = 0;
+    while ((info = hid_enumerate_next(h)) != NULL) {
+        if (!is_known_vid(info->vendor_id)) continue;
+        copy = *info;
+        count++;
+        if (count > 1) break;
+    }
+    hid_enumerate_free(h);
+    return count == 1 ? &copy : NULL;
+}
+
 nrf_ocd_status_t probe_list(probe_info_t *out, size_t max_count, size_t *out_count) {
     if (!out || !out_count) return NRF_OCD_ERR_INVALID_ARG;
     *out_count = 0;
@@ -66,8 +100,16 @@ nrf_ocd_status_t probe_open(probe_info_t *out_info, hid_device_t **out_dev,
     const hid_device_info_t *info = NULL;
     if (serial && serial[0]) {
         info = hid_find_by_serial(serial);
+        if (!info) {
+            info = find_only_known_probe();
+            if (info) {
+                LOG_WARNING("Probe UID %s was not readable from USB descriptors; "
+                            "using the only CMSIS-DAP probe at %s",
+                            serial, info->path);
+            }
+        }
     } else {
-        info = hid_find_by_index(index);
+        info = find_known_probe_by_index(index);
     }
     if (!info) return NRF_OCD_ERR_PROBE_NOT_FOUND;
     if (!is_known_vid(info->vendor_id)) {

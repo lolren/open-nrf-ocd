@@ -65,6 +65,7 @@
 #define NVMC_CONFIG_REN  0x0
 
 #define MASS_ERASE_TIMEOUT_MS 30000
+#define NRESET_PIN 0x80U
 
 /* Shared with the LM20A target implementation. */
 nrf_ocd_status_t target_nrf54l_init(target_t *t);
@@ -118,6 +119,21 @@ static nrf_ocd_status_t read_dp_targetid(target_t *t, uint32_t *targetid) {
     return dap_dp_write(&t->dap, 0x8, 0);
 }
 
+static nrf_ocd_status_t nrf54l_pulse_nreset(target_t *t,
+                                            uint32_t assert_ms,
+                                            uint32_t release_ms) {
+    uint8_t pins = 0;
+    nrf_ocd_status_t st = cmsis_dap_swj_pins(&t->dap, 0x00, NRESET_PIN,
+                                             &pins, assert_ms);
+    if (st != NRF_OCD_OK) return st;
+    st = cmsis_dap_swj_pins(&t->dap, NRESET_PIN, NRESET_PIN,
+                            &pins, release_ms);
+    if (st != NRF_OCD_OK) return st;
+    nrf_ocd_sleep_ms(release_ms + 20);
+    t->halted = false;
+    return NRF_OCD_OK;
+}
+
 static nrf_ocd_status_t target_nrf54l_swd_connect(target_t *t) {
     /* Matches the EXACT sequence from the pre-built binary's nrf_swd_connect(). */
     nrf_ocd_status_t st;
@@ -125,6 +141,12 @@ static nrf_ocd_status_t target_nrf54l_swd_connect(target_t *t) {
 
     for (int attempt = 0; attempt < 5; attempt++) {
         if (attempt > 0) nrf_ocd_sleep_ms(50 * (1 << attempt));
+        if (attempt > 0) {
+            LOG_DEBUG("Pulsing nRESET before SWD reconnect attempt %d",
+                      attempt + 1);
+            (void)nrf54l_pulse_nreset(t, 50, 50);
+            hid_flush(t->dap.dev);
+        }
 
         /* Step 1: DAP_Connect SWD. */
         /* pyOCD connect-under-reset (port=3 = SWD+nRESET) prevents
@@ -292,12 +314,16 @@ nrf_ocd_status_t target_nrf54l_mass_erase(target_t *t) {
     if (st != NRF_OCD_OK) return st;
     st = ctrl_ap_write(t, CTRL_AP_RESET >> 2, 0x0);
     if (st != NRF_OCD_OK) return st;
-    nrf_ocd_sleep_ms(200);
-    /* Re-init SWD because the target has rebooted. */
-    st = swd_line_reset(&t->dap);
-    if (st != NRF_OCD_OK) return st;
-    /* Power-up the debug domain again. */
-    st = target_nrf54l_init(t);
+    nrf_ocd_sleep_ms(750);
+
+    /* Re-init SWD because the target has rebooted and may need extra time
+     * after APPROTECT recovery before AHB-AP accesses are reliable. */
+    for (int attempt = 0; attempt < 4; attempt++) {
+        hid_flush(t->dap.dev);
+        st = target_nrf54l_init(t);
+        if (st == NRF_OCD_OK) break;
+        nrf_ocd_sleep_ms((uint32_t)(250 * (attempt + 1)));
+    }
     if (st != NRF_OCD_OK) return st;
     t->mass_erased = true;
     LOG_INFO("Mass erase complete");
@@ -333,16 +359,7 @@ nrf_ocd_status_t target_nrf54l_read_part_info(target_t *t) {
 nrf_ocd_status_t target_nrf54l_reset(target_t *t, target_reset_mode_t mode) {
     /* For under-reset mode, use CMSIS-DAP SWJ_PINS to toggle nRESET. */
     if (mode == TARGET_RESET_UNDER_RESET) {
-        uint8_t pins;
-        nrf_ocd_status_t st = cmsis_dap_swj_pins(&t->dap, 0, &pins, 0);
-        if (st != NRF_OCD_OK) return st;
-        /* nRESET = bit 7, SWCLK = bit 1, SWDIO = bit 0 */
-        st = cmsis_dap_swj_pins(&t->dap, 0x80, &pins, 100);  /* nRESET low for 100ms */
-        if (st != NRF_OCD_OK) return st;
-        st = cmsis_dap_swj_pins(&t->dap, 0x00, &pins, 10);   /* nRESET high */
-        if (st != NRF_OCD_OK) return st;
-        t->halted = false;
-        return NRF_OCD_OK;
+        return nrf54l_pulse_nreset(t, 100, 10);
     }
     
     /* The nRF54L reset is a CPU-side AIRCR reset. Issue VECTKEY+SYSRESETREQ

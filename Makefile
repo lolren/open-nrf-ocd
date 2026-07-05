@@ -147,7 +147,7 @@ WARN     := -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-align \
             -Wuninitialized -Wconversion -Wno-sign-conversion \
             -Wformat=2
 STD      := -std=c11
-DEFS     := -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DNRF_OCD_VERSION=\"0.3.2\"
+DEFS     := -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DNRF_OCD_VERSION=\"0.3.3\"
 
 ifeq ($(DEBUG),1)
     OPT     := -O0 -g3

@@ -55,12 +55,44 @@ struct hid_enumerate_handle {
 };
 
 /* ----- Enumeration helpers ------------------------------------------------ */
+static void read_sysfs_attr(libusb_device *dev, const char *attr,
+                            char *out, size_t cap) {
+    if (!dev || !attr || !out || cap == 0 || out[0]) return;
+
+    uint8_t ports[8];
+    int n = libusb_get_port_numbers(dev, ports, sizeof(ports));
+    if (n <= 0) return;
+
+    char dir[256];
+    int p = snprintf(dir, sizeof(dir), "/sys/bus/usb/devices/%u-%u",
+                     (unsigned)libusb_get_bus_number(dev), (unsigned)ports[0]);
+    for (int i = 1; i < n && p > 0 && p < (int)sizeof(dir) - 4; i++) {
+        p += snprintf(dir + p, sizeof(dir) - (size_t)p, ".%u",
+                      (unsigned)ports[i]);
+    }
+    if (p <= 0 || p >= (int)sizeof(dir)) return;
+
+    char path[320];
+    if (snprintf(path, sizeof(path), "%s/%s", dir, attr) >= (int)sizeof(path)) {
+        return;
+    }
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    if (fgets(out, (int)cap, f)) {
+        size_t len = strlen(out);
+        while (len > 0 && (out[len - 1] == '\n' || out[len - 1] == '\r')) {
+            out[--len] = '\0';
+        }
+    }
+    fclose(f);
+}
+
 static void fill_info_from_descriptor(libusb_device *dev, hid_device_info_t *info) {
     struct libusb_device_descriptor desc;
-    if (libusb_get_device_descriptor(dev, &desc) == 0) {
-        info->vendor_id  = desc.idVendor;
-        info->product_id = desc.idProduct;
-    }
+    if (libusb_get_device_descriptor(dev, &desc) != 0) return;
+    info->vendor_id  = desc.idVendor;
+    info->product_id = desc.idProduct;
+
     libusb_device_handle *h = NULL;
     if (libusb_open(dev, &h) == 0) {
         unsigned char buf[256];
@@ -75,17 +107,24 @@ static void fill_info_from_descriptor(libusb_device *dev, hid_device_info_t *inf
         if (len > 0) { memcpy(info->serial_number, buf, (size_t)len < 64 ? (size_t)len : 63); }
         libusb_close(h);
     }
+
+    read_sysfs_attr(dev, "manufacturer", info->manufacturer,
+                    sizeof(info->manufacturer));
+    read_sysfs_attr(dev, "product", info->product_string,
+                    sizeof(info->product_string));
+    read_sysfs_attr(dev, "serial", info->serial_number,
+                    sizeof(info->serial_number));
 }
 
 /* Find the CMSIS-DAP v2 vendor-specific bulk interface. Selection rules
  * match pyOCD's _match_cmsis_dap_v2_interface(): class 0xFF, subclass 0,
  * with a bulk OUT and bulk IN endpoint. Returns the endpoints, the OUT
  * endpoint's wMaxPacketSize, and the interface number. */
-static int find_cmsis_dap_interface(libusb_device_handle *h,
-                                     uint8_t *out_ep, uint8_t *in_ep,
-                                     uint16_t *out_max_pkt, uint8_t *iface_no) {
+static int find_cmsis_dap_interface_on_device(libusb_device *d,
+                                              uint8_t *out_ep, uint8_t *in_ep,
+                                              uint16_t *out_max_pkt,
+                                              uint8_t *iface_no) {
     struct libusb_config_descriptor *cfg = NULL;
-    libusb_device *d = libusb_get_device(h);
     if (!d) return -1;
     if (libusb_get_active_config_descriptor(d, &cfg) != 0) return -1;
     int found = 0;
@@ -124,6 +163,13 @@ static int find_cmsis_dap_interface(libusb_device_handle *h,
     return found ? 0 : -1;
 }
 
+static int find_cmsis_dap_interface(libusb_device_handle *h,
+                                     uint8_t *out_ep, uint8_t *in_ep,
+                                     uint16_t *out_max_pkt, uint8_t *iface_no) {
+    return find_cmsis_dap_interface_on_device(libusb_get_device(h), out_ep,
+                                              in_ep, out_max_pkt, iface_no);
+}
+
 static void make_device_path(libusb_device *dev, char *out, size_t cap) {
     uint8_t port_numbers[8];
     int n = libusb_get_port_numbers(dev, port_numbers, sizeof(port_numbers));
@@ -136,9 +182,17 @@ static void make_device_path(libusb_device *dev, char *out, size_t cap) {
 }
 
 static int build_cmsis_entry(libusb_device *dev, hid_device_info_t *out) {
+    uint8_t in_ep = 0, out_ep = 0, iface = 0;
+    uint16_t out_max = 0;
+    if (find_cmsis_dap_interface_on_device(dev, &out_ep, &in_ep, &out_max,
+                                           &iface) != 0) {
+        return 0;
+    }
     memset(out, 0, sizeof(*out));
     fill_info_from_descriptor(dev, out);
     make_device_path(dev, out->path, sizeof(out->path));
+    out->interface_number = iface;
+    out->is_dap_v2 = true;
     return 1;
 }
 
@@ -169,7 +223,7 @@ const hid_device_info_t *hid_enumerate_next(hid_enumerate_handle_t *h) {
         struct libusb_device_descriptor desc;
         if (libusb_get_device_descriptor(dev, &desc) != 0) continue;
         if (desc.idVendor == 0 && desc.idProduct == 0) continue;
-        build_cmsis_entry(dev, &h->items[h->n_items]);
+        if (!build_cmsis_entry(dev, &h->items[h->n_items])) continue;
         memcpy(&h->current, &h->items[h->n_items], sizeof(h->current));
         h->n_items++;
         return &h->current;
@@ -250,6 +304,13 @@ static void flush_in_endpoint(libusb_device_handle *h, uint8_t in_ep) {
     }
 }
 
+static void recover_bulk_pipes(hid_device_t *dev) {
+    if (!dev || !dev->handle) return;
+    if (dev->out_endpoint) (void)libusb_clear_halt(dev->handle, dev->out_endpoint);
+    if (dev->in_endpoint)  (void)libusb_clear_halt(dev->handle, dev->in_endpoint);
+    if (dev->in_endpoint) flush_in_endpoint(dev->handle, dev->in_endpoint);
+}
+
 hid_device_t *hid_open_path(const char *path) {
     if (!path) return NULL;
     libusb_device *dev = find_device_by_path(path);
@@ -263,7 +324,6 @@ hid_device_t *hid_open_path(const char *path) {
         libusb_unref_device(dev);
         return NULL;
     }
-    libusb_unref_device(dev);
 
     /* Let libusb detach/reattach the kernel driver around our claim,
      * exactly like pyusb's managed claim_interface. */
@@ -273,11 +333,13 @@ hid_device_t *hid_open_path(const char *path) {
     uint16_t out_max = 0;
     if (find_cmsis_dap_interface(h, &out_ep, &in_ep, &out_max, &iface) != 0) {
         LOG_ERROR("Could not find CMSIS-DAP v2 bulk interface for %s", path);
+        libusb_unref_device(dev);
         libusb_close(h);
         return NULL;
     }
     if (libusb_claim_interface(h, iface) != 0) {
         LOG_ERROR("libusb_claim_interface(%u) failed for %s", iface, path);
+        libusb_unref_device(dev);
         libusb_close(h);
         return NULL;
     }
@@ -286,7 +348,12 @@ hid_device_t *hid_open_path(const char *path) {
     flush_in_endpoint(h, in_ep);
 
     hid_device_t *d = (hid_device_t *)calloc(1, sizeof(*d));
-    if (!d) { libusb_release_interface(h, iface); libusb_close(h); return NULL; }
+    if (!d) {
+        libusb_unref_device(dev);
+        libusb_release_interface(h, iface);
+        libusb_close(h);
+        return NULL;
+    }
     d->handle = h;
     d->in_endpoint = in_ep;
     d->out_endpoint = out_ep;
@@ -306,6 +373,8 @@ hid_device_t *hid_open_path(const char *path) {
             strncpy(d->serial, (const char *)buf, sizeof(d->serial) - 1);
         }
     }
+    read_sysfs_attr(dev, "serial", d->serial, sizeof(d->serial));
+    libusb_unref_device(dev);
     return d;
 }
 
@@ -336,6 +405,7 @@ nrf_ocd_status_t hid_read(hid_device_t *dev, uint8_t *buf, size_t buf_size,
     if (rc == LIBUSB_ERROR_TIMEOUT) { free(tmp); return NRF_OCD_ERR_TIMEOUT; }
     if (rc != 0) {
         LOG_DEBUG("bulk read failed: rc=%d", rc);
+        recover_bulk_pipes(dev);
         free(tmp);
         return NRF_OCD_ERR_IO;
     }
@@ -357,6 +427,12 @@ nrf_ocd_status_t hid_write(hid_device_t *dev, const uint8_t *data, size_t len,
     if (rc == LIBUSB_ERROR_TIMEOUT) return NRF_OCD_ERR_TIMEOUT;
     if (rc != 0) {
         LOG_DEBUG("bulk write failed: rc=%d len=%zu", rc, len);
+        recover_bulk_pipes(dev);
+        return NRF_OCD_ERR_IO;
+    }
+    if ((size_t)transferred != len) {
+        LOG_DEBUG("bulk short write: wrote=%d len=%zu", transferred, len);
+        recover_bulk_pipes(dev);
         return NRF_OCD_ERR_IO;
     }
     /* Terminate the transfer with a zero-length packet when the payload is
@@ -369,6 +445,10 @@ nrf_ocd_status_t hid_write(hid_device_t *dev, const uint8_t *data, size_t len,
                                    (uint8_t *)&dummy, 0, &transferred, timeout_ms);
     }
     return NRF_OCD_OK;
+}
+
+void hid_flush(hid_device_t *dev) {
+    recover_bulk_pipes(dev);
 }
 
 const char *hid_path(const hid_device_t *dev)     { return dev ? dev->path : ""; }

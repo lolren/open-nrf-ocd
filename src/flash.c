@@ -23,6 +23,21 @@
 /* Forward declaration. */
 static nrf_ocd_status_t verify_segment(target_t *t, const hex_segment_t *seg);
 
+static nrf_ocd_status_t halt_with_reconnect(target_t *t) {
+    nrf_ocd_status_t st = flash_algo_halt(t);
+    if (st == NRF_OCD_OK) return st;
+
+    LOG_WARNING("Initial halt failed: %s; reconnecting target and retrying",
+                nrf_ocd_strerror(st));
+    if (t->ops && t->ops->init) {
+        hid_flush(t->dap.dev);
+        nrf_ocd_sleep_ms(300);
+        nrf_ocd_status_t rst = t->ops->init(t);
+        if (rst != NRF_OCD_OK) return st;
+    }
+    return flash_algo_halt(t);
+}
+
 enum {
     FLASH_PROGRAM_CHUNK_BYTES = 1024,
 };
@@ -44,7 +59,7 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
     }
 
     /* Halt the target before programming. */
-    nrf_ocd_status_t st = flash_algo_halt(t);
+    nrf_ocd_status_t st = halt_with_reconnect(t);
     if (st != NRF_OCD_OK) {
         LOG_ERROR("Failed to halt target: %s", nrf_ocd_strerror(st));
         return st;
@@ -79,7 +94,7 @@ nrf_ocd_status_t flash_write_image(target_t *t, const hex_image_t *img,
         t->mass_erased = true;
         
         /* Re-halt after erase. */
-        st = flash_algo_halt(t);
+        st = halt_with_reconnect(t);
         if (st != NRF_OCD_OK) {
             LOG_ERROR("Failed to re-halt after erase: %s", nrf_ocd_strerror(st));
             flash_algo_uninit(t, algo);
