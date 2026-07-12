@@ -116,6 +116,7 @@ bool             cmsis_dap_is_v2(const cmsis_dap_t *dap);
 
 /* ---- SWJ / clock ---------------------------------------------------------- */
 nrf_ocd_status_t cmsis_dap_connect(cmsis_dap_t *dap, dap_port_t port);
+nrf_ocd_status_t cmsis_dap_connect_under_reset(cmsis_dap_t *dap);
 nrf_ocd_status_t cmsis_dap_disconnect(cmsis_dap_t *dap);
 nrf_ocd_status_t cmsis_dap_swj_clock(cmsis_dap_t *dap, uint32_t hz);
 nrf_ocd_status_t cmsis_dap_swj_pins(cmsis_dap_t *dap, uint8_t out,

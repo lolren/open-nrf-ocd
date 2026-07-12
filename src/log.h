@@ -30,7 +30,10 @@ void nrf_ocd_log_set_quiet(bool quiet);
 /* Internal: format a single log line. All public macros below funnel through
  * nrf_ocd_log_emit(). Avoid calling it directly so that file/line info
  * stays accurate. */
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__MINGW32__)
+#define NRF_OCD_PRINTF_FORMAT(fmt_index, first_arg) \
+    __attribute__((format(gnu_printf, fmt_index, first_arg)))
+#elif defined(__GNUC__) || defined(__clang__)
 #define NRF_OCD_PRINTF_FORMAT(fmt_index, first_arg) \
     __attribute__((format(printf, fmt_index, first_arg)))
 #else

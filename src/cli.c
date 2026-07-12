@@ -384,14 +384,14 @@ static int apply_long_option(cli_ctx_t *ctx, int val, const char *arg) {
         case 'p': {
             char buf[64] = {0};
             if (port_to_serial(arg, buf, sizeof(buf))) {
-                strncpy(ctx->uid, buf, sizeof(ctx->uid) - 1);
+                nrf_ocd_str_copy(ctx->uid, sizeof(ctx->uid), buf);
             } else {
                 LOG_ERROR("Cannot determine probe serial from port %s", arg);
                 return 1;
             }
             return 0;
         }
-        case 'u': strncpy(ctx->uid, arg, sizeof(ctx->uid) - 1); return 0;
+        case 'u': nrf_ocd_str_copy(ctx->uid, sizeof(ctx->uid), arg); return 0;
         case 't': {
             target_type_t ty = target_type_from_string(arg);
             if (ty == TARGET_UNKNOWN) {

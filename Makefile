@@ -10,8 +10,8 @@
 #   make OS=windows CROSS=i686-w64-mingw32-   -> Windows .exe
 #   make OS=darwin                            -> macOS (run on macOS host)
 #
-# Strictly no external dependencies. The HID layer uses only OS-native APIs
-# (hidraw on Linux, IOKit HID on macOS, hid.dll + setupapi.dll on Windows).
+# Native HID builds use only OS APIs (hidraw on Linux, IOKit HID on macOS,
+# and hid.dll/WinUSB on Windows).
 #
 # Optionally, libusb-1.0 can be enabled for CMSIS-DAP v2 bulk endpoints
 # (which some boards - notably the Seeed XIAO nRF54 - require for
@@ -27,6 +27,7 @@ TARGET_OS := $(OS)
 USE_LIBUSB ?= 0
 ZIG ?= 0
 STATIC ?= 0
+VERSION ?= 0.3.4
 ifeq ($(ZIG),1)
     # Zig cross-compilation targeting glibc 2.17
     CC := zig cc -target x86_64-linux-gnu.2.17
@@ -115,6 +116,7 @@ endif
 COMMON_SRC := \
     $(SRC_DIR)/log.c \
     $(SRC_DIR)/util.c \
+    $(SRC_DIR)/hid_descriptor.c \
     $(SRC_DIR)/hex.c \
     $(SRC_DIR)/elf.c \
     $(SRC_DIR)/probe.c \
@@ -128,10 +130,6 @@ COMMON_SRC := \
     $(SRC_DIR)/flash.c \
     $(SRC_DIR)/commander.c \
     $(SRC_DIR)/cli.c
-
-ifeq ($(USE_LIBUSB),1)
-    COMMON_SRC += $(SRC_DIR)/hid_libusb.c
-endif
 
 COMMON_OBJ := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(COMMON_SRC))
 ALL_OBJ    := $(COMMON_OBJ) $(HID_OBJ) $(OBJ_DIR)/main.o
@@ -147,7 +145,7 @@ WARN     := -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-align \
             -Wuninitialized -Wconversion -Wno-sign-conversion \
             -Wformat=2
 STD      := -std=c11
-DEFS     := -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DNRF_OCD_VERSION=\"0.3.3\"
+DEFS     := -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -DNRF_OCD_VERSION=\"$(VERSION)\"
 
 ifeq ($(DEBUG),1)
     OPT     := -O0 -g3
@@ -155,8 +153,9 @@ else
     OPT     := -O2 -g
 endif
 
-CFLAGS   := $(STD) $(WARN) $(OPT) $(DEFS) $(OS_CFLAGS) $(LIBUSB_CFLAGS) $(INCLUDE) -MMD -MP
-LDFLAGS  := $(LIBUSB_LDFLAGS) $(EXTRALDFLAGS) $(EXTRALDFLAGS)
+CFLAGS   := $(STD) $(WARN) $(OPT) $(DEFS) $(OS_CFLAGS) $(LIBUSB_CFLAGS) $(INCLUDE) \
+            $(CFLAGS_EXTRA) -MMD -MP
+LDFLAGS  := $(LIBUSB_LDFLAGS) $(LDFLAGS_EXTRA) $(EXTRALDFLAGS)
 LDLIBS   := $(OS_LDLIBS) $(LIBUSB_LDLIBS)
 
 # ----- Default target ---------------------------------------------------------
@@ -184,7 +183,7 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 
 # ----- Tests ------------------------------------------------------------------
 TEST_BINS := $(BIN_DIR)/test_hex$(BIN_EXT) $(BIN_DIR)/test_elf$(BIN_EXT) \
-             $(BIN_DIR)/test_target$(BIN_EXT)
+             $(BIN_DIR)/test_target$(BIN_EXT) $(BIN_DIR)/test_hid_descriptor$(BIN_EXT)
 
 .PHONY: test
 test: $(TEST_BINS) $(APP)
@@ -194,6 +193,8 @@ test: $(TEST_BINS) $(APP)
 	$(BIN_DIR)/test_elf
 	@echo "=== Running test_target ==="
 	$(BIN_DIR)/test_target
+	@echo "=== Running test_hid_descriptor ==="
+	$(BIN_DIR)/test_hid_descriptor
 
 $(BIN_DIR)/test_hex$(BIN_EXT): $(TEST_DIR)/test_hex.c $(LIB)
 	@mkdir -p $(@D)
@@ -206,6 +207,10 @@ $(BIN_DIR)/test_elf$(BIN_EXT): $(TEST_DIR)/test_elf.c $(LIB)
 $(BIN_DIR)/test_target$(BIN_EXT): $(TEST_DIR)/test_target.c $(LIB)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/test_target.c $(LIB) $(LDLIBS)
+
+$(BIN_DIR)/test_hid_descriptor$(BIN_EXT): $(TEST_DIR)/test_hid_descriptor.c $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/test_hid_descriptor.c $(LIB) $(LDLIBS)
 
 # ----- Maintenance ------------------------------------------------------------
 .PHONY: clean
@@ -230,6 +235,7 @@ print-vars:
 	@echo "CFLAGS=$(CFLAGS)"
 
 # ----- Cross-compilation targets -----------------------------------------------
+.NOTPARALLEL: release linux-x64 linux-arm64 linux-armhf win64
 .PHONY: linux-x64 linux-arm64 linux-armhf win64 clean-all
 
 # Linux x86_64 (native, with libusb)

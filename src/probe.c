@@ -82,10 +82,10 @@ nrf_ocd_status_t probe_list(probe_info_t *out, size_t max_count, size_t *out_cou
         probe_info_t *p = &out[*out_count];
         p->vendor_id  = info->vendor_id;
         p->product_id = info->product_id;
-        strncpy(p->serial,    info->serial_number, sizeof(p->serial)    - 1);
-        strncpy(p->product,   info->product_string, sizeof(p->product)   - 1);
-        strncpy(p->manufacturer, info->manufacturer, sizeof(p->manufacturer) - 1);
-        strncpy(p->path,      info->path, sizeof(p->path) - 1);
+        nrf_ocd_str_copy(p->serial, sizeof(p->serial), info->serial_number);
+        nrf_ocd_str_copy(p->product, sizeof(p->product), info->product_string);
+        nrf_ocd_str_copy(p->manufacturer, sizeof(p->manufacturer), info->manufacturer);
+        nrf_ocd_str_copy(p->path, sizeof(p->path), info->path);
         LOG_INFO("Probe %zu: %s [%s] at %s", *out_count, p->product, p->serial, p->path);
         (*out_count)++;
     }
@@ -132,10 +132,11 @@ nrf_ocd_status_t probe_open(probe_info_t *out_info, hid_device_t **out_dev,
     if (out_info) {
         out_info->vendor_id  = info->vendor_id;
         out_info->product_id = info->product_id;
-        strncpy(out_info->serial,    info->serial_number, sizeof(out_info->serial)    - 1);
-        strncpy(out_info->product,   info->product_string, sizeof(out_info->product)   - 1);
-        strncpy(out_info->manufacturer, info->manufacturer, sizeof(out_info->manufacturer) - 1);
-        strncpy(out_info->path,      info->path, sizeof(out_info->path) - 1);
+        nrf_ocd_str_copy(out_info->serial, sizeof(out_info->serial), info->serial_number);
+        nrf_ocd_str_copy(out_info->product, sizeof(out_info->product), info->product_string);
+        nrf_ocd_str_copy(out_info->manufacturer, sizeof(out_info->manufacturer),
+                         info->manufacturer);
+        nrf_ocd_str_copy(out_info->path, sizeof(out_info->path), info->path);
     }
     *out_dev = dev;
     return NRF_OCD_OK;

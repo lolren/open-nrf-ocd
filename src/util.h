@@ -77,6 +77,7 @@ uint64_t nrf_ocd_monotonic_ms(void);
 /* ----- String helpers ------------------------------------------------------- */
 char *nrf_ocd_strdup(const char *s);
 char *nrf_ocd_strndup(const char *s, size_t n);
+size_t nrf_ocd_str_copy(char *dst, size_t dst_size, const char *src);
 int   nrf_ocd_strcasecmp(const char *a, const char *b);
 int   nrf_ocd_strncasecmp(const char *a, const char *b, size_t n);
 bool  nrf_ocd_str_endswith(const char *s, const char *suffix);

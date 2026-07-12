@@ -1,4 +1,5 @@
 build/
+/build_win/
 release_dist/
 *.o
 *.d

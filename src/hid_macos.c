@@ -255,7 +255,7 @@ hid_device_t *hid_open_path(const char *path) {
     hid_device_t *d = (hid_device_t *)calloc(1, sizeof(*d));
     if (!d) { CFRelease(dev); return NULL; }
     d->device = dev;
-    strncpy(d->path, path, sizeof(d->path) - 1);
+    nrf_ocd_str_copy(d->path, sizeof(d->path), path);
     d->vid = (uint16_t)get_int_property(dev, CFSTR(kIOHIDVendorIDKey));
     d->pid = (uint16_t)get_int_property(dev, CFSTR(kIOHIDProductIDKey));
     store_cfstr(get_str_property(dev, CFSTR(kIOHIDSerialNumberKey)),

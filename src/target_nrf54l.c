@@ -1,4 +1,15 @@
-/* target_nrf54l.c - nRF54L15 target implementation.
+/* Copyright (c) 2006-2013 Arm Limited
+ * Copyright (c) 2010-2023 Nordic Semiconductor ASA. All rights reserved.
+ * Copyright (c) 2019 Monadnock Systems Ltd.
+ * Copyright (c) 2024 Nordic Semiconductor ASA
+ * Copyright (c) 2026 Arm Limited
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Adapted for nRF OCD in 2026: pyOCD's nRF54L family target, memory-map,
+ * CTRL-AP, erase, reset, and protection behavior were translated into this C
+ * target implementation. See LICENSES/Apache-2.0.txt.
+ *
+ * target_nrf54l.c - nRF54L15 target implementation.
  *
  * Implements the parts of pyOCD's NRF54L class that we need:
  *   - DP/AP #2 (CTRL-AP) for ERASEALL + APPROTECT.
@@ -75,25 +86,6 @@ nrf_ocd_status_t target_nrf54l_reset(target_t *t, target_reset_mode_t mode);
 nrf_ocd_status_t target_nrf54l_halt(target_t *t);
 nrf_ocd_status_t target_nrf54l_resume(target_t *t);
 
-/* Wait for NVMC_READY to be 1. */
-static nrf_ocd_status_t nvmc_wait_ready(target_t *t, uint32_t timeout_ms) {
-    uint64_t deadline = nrf_ocd_monotonic_ms() + timeout_ms;
-    while (nrf_ocd_monotonic_ms() < deadline) {
-        uint32_t v;
-        nrf_ocd_status_t st = target_mem_read_u32(t, NVMC_READY, &v);
-        if (st != NRF_OCD_OK) return st;
-        if (v & 0x1) return NRF_OCD_OK;
-        nrf_ocd_sleep_ms(1);
-    }
-    return NRF_OCD_ERR_TIMEOUT;
-}
-
-static nrf_ocd_status_t nvmc_config(target_t *t, uint32_t mode) {
-    nrf_ocd_status_t st = nvmc_wait_ready(t, 1000);
-    if (st != NRF_OCD_OK) return st;
-    return target_mem_write_u32(t, NVMC_CONFIG, mode);
-}
-
 static nrf_ocd_status_t ctrl_ap_read(target_t *t, uint8_t reg, uint32_t *value) {
     uint32_t select = (CTRL_AP_NUM << 24) | ((uint32_t)(reg & 0xF0) << 0);
     nrf_ocd_status_t st = dap_dp_write(&t->dap, 0x8, select);
@@ -106,17 +98,6 @@ static nrf_ocd_status_t ctrl_ap_write(target_t *t, uint8_t reg, uint32_t value) 
     nrf_ocd_status_t st = dap_dp_write(&t->dap, 0x8, select);
     if (st != NRF_OCD_OK) return st;
     return cmsis_dap_transfer(&t->dap, DAP_TRANSFER_APnDP_AP, reg >> 2, false, &value);
-}
-
-/* Read DP_TARGETID (register 0x4 in DP bank 1). pyOCD uses this to
- * identify Nordic devices: bits 11:0 = 0x289, bits 19:16 = 0xC. */
-static nrf_ocd_status_t read_dp_targetid(target_t *t, uint32_t *targetid) {
-    nrf_ocd_status_t st = dap_dp_write(&t->dap, 0x8, 1 << 4);  /* bank 1 */
-    if (st != NRF_OCD_OK) return st;
-    st = dap_dp_read(&t->dap, 0x4, targetid);
-    if (st != NRF_OCD_OK) return st;
-    /* Restore bank 0. */
-    return dap_dp_write(&t->dap, 0x8, 0);
 }
 
 static nrf_ocd_status_t nrf54l_pulse_nreset(target_t *t,
@@ -330,7 +311,7 @@ nrf_ocd_status_t target_nrf54l_mass_erase(target_t *t) {
     return NRF_OCD_OK;
 }
 
-nrf_ocd_status_t target_nrf54l_read_part_info(target_t *t) {
+static nrf_ocd_status_t target_nrf54l_read_part_info(target_t *t) {
     /* Switch to AHB-AP. */
     nrf_ocd_status_t st = dap_dp_write(&t->dap, 0x8, AHB_AP_NUM);
     if (st != NRF_OCD_OK) return st;

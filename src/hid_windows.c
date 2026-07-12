@@ -8,8 +8,12 @@
 #include "log.h"
 #include "util.h"
 
+#ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0601
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <setupapi.h>
 #include <hidsdi.h>
@@ -29,10 +33,15 @@ static const GUID GUID_DEVINTERFACE_HID_LOCAL =
 static const GUID GUID_DEVINTERFACE_CMSIS_DAP_V2 =
     { 0xCDB3B5AD, 0x293B, 0x4663, { 0xAA, 0x36, 0x1A, 0xAE, 0x46, 0x46, 0x37, 0x76 } };
 
+#ifdef _MSC_VER
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "hid.lib")
 #pragma comment(lib, "winusb.lib")
 #pragma comment(lib, "cfgmgr32.lib")
+#define NRF_OCD_THREAD_LOCAL __declspec(thread)
+#else
+#define NRF_OCD_THREAD_LOCAL _Thread_local
+#endif
 
 #define WINUSB_PREFIX "winusb:"
 #define DAP_BULK_PACKET_SIZE 512U
@@ -172,7 +181,7 @@ static void setupdi_string_property(HDEVINFO dev_info, SP_DEVINFO_DATA *did,
         return;
     }
     if (type != REG_SZ) return;
-    strncpy(out, (const char *)buf, cap - 1);
+    nrf_ocd_str_copy(out, cap, (const char *)buf);
     out[cap - 1] = '\0';
 }
 
@@ -213,8 +222,8 @@ static bool fill_info_from_winusb_path(const char *path, SP_DEVINFO_DATA *did,
                                    sizeof(info->serial_number));
     }
     if (!info->product_string[0]) {
-        strncpy(info->product_string, "CMSIS-DAP v2 Adapter",
-                sizeof(info->product_string) - 1);
+        nrf_ocd_str_copy(info->product_string, sizeof(info->product_string),
+                         "CMSIS-DAP v2 Adapter");
     }
     snprintf(info->path, sizeof(info->path), "%s%s", WINUSB_PREFIX, path);
     info->is_dap_v2 = true;
@@ -317,7 +326,7 @@ static void enumerate_hid(hid_enumerate_handle_t *h) {
         memset(&info, 0, sizeof(info));
         info.vendor_id  = attr.VendorID;
         info.product_id = attr.ProductID;
-        strncpy(info.path, detail->DevicePath, sizeof(info.path) - 1);
+        nrf_ocd_str_copy(info.path, sizeof(info.path), detail->DevicePath);
 
         wchar_t buf[256];
         if (HidD_GetSerialNumberString(h2, buf, sizeof(buf)))
@@ -375,7 +384,7 @@ const hid_device_info_t *hid_find_by_serial(const char *serial) {
     const hid_device_info_t *info;
     while ((info = hid_enumerate_next(h)) != NULL) {
         if (nrf_ocd_strcasecmp(info->serial_number, serial) == 0) {
-            static __declspec(thread) hid_device_info_t copy;
+            static NRF_OCD_THREAD_LOCAL hid_device_info_t copy;
             copy = *info;
             hid_enumerate_free(h);
             return &copy;
@@ -392,7 +401,7 @@ const hid_device_info_t *hid_find_by_index(unsigned index) {
     unsigned i = 0;
     while ((info = hid_enumerate_next(h)) != NULL) {
         if (i == index) {
-            static __declspec(thread) hid_device_info_t copy;
+            static NRF_OCD_THREAD_LOCAL hid_device_info_t copy;
             copy = *info;
             hid_enumerate_free(h);
             return &copy;
@@ -456,7 +465,7 @@ static hid_device_t *open_winusb_path(const char *prefixed_path) {
     dev->is_bulk = true;
     dev->packet_size = DAP_BULK_PACKET_SIZE;
     dev->report_size = (int)DAP_BULK_PACKET_SIZE;
-    strncpy(dev->path, prefixed_path, sizeof(dev->path) - 1);
+    nrf_ocd_str_copy(dev->path, sizeof(dev->path), prefixed_path);
 
     for (UCHAR i = 0; i < iface.bNumEndpoints; i++) {
         WINUSB_PIPE_INFORMATION pipe;
@@ -507,7 +516,7 @@ static hid_device_t *open_hid_path(const char *path) {
     hid_device_t *dev = (hid_device_t *)calloc(1, sizeof(*dev));
     if (!dev) { CloseHandle(h); return NULL; }
     dev->handle = h;
-    strncpy(dev->path, path, sizeof(dev->path) - 1);
+    nrf_ocd_str_copy(dev->path, sizeof(dev->path), path);
 
     HIDD_ATTRIBUTES attr;
     memset(&attr, 0, sizeof(attr));
@@ -603,7 +612,13 @@ nrf_ocd_status_t hid_read(hid_device_t *dev, uint8_t *buf, size_t buf_size,
             dev->read_pending = true;
         }
     }
-    DWORD wait = WaitForSingleObject(dev->read_ovl.hEvent, (DWORD)(timeout_ms < 0 ? INFINITE : timeout_ms));
+    DWORD wait_timeout;
+    if (timeout_ms < 0) {
+        wait_timeout = INFINITE;
+    } else {
+        wait_timeout = (DWORD)timeout_ms;
+    }
+    DWORD wait = WaitForSingleObject(dev->read_ovl.hEvent, wait_timeout);
     if (wait == WAIT_TIMEOUT) {
         CancelIo(dev->handle);
         GetOverlappedResult(dev->handle, &dev->read_ovl, &dev->last_len, TRUE);
@@ -662,7 +677,13 @@ nrf_ocd_status_t hid_write(hid_device_t *dev, const uint8_t *data, size_t len,
             CloseHandle(ovl.hEvent);
             return NRF_OCD_ERR_IO;
         }
-        if (WaitForSingleObject(ovl.hEvent, (DWORD)(timeout_ms < 0 ? INFINITE : timeout_ms)) != WAIT_OBJECT_0) {
+        DWORD wait_timeout;
+        if (timeout_ms < 0) {
+            wait_timeout = INFINITE;
+        } else {
+            wait_timeout = (DWORD)timeout_ms;
+        }
+        if (WaitForSingleObject(ovl.hEvent, wait_timeout) != WAIT_OBJECT_0) {
             CancelIo(dev->handle);
             CloseHandle(ovl.hEvent);
             return NRF_OCD_ERR_TIMEOUT;

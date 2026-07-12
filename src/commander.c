@@ -21,7 +21,7 @@
  *   halt                 - halt the target
  *   resume               - resume the target
  */
-#include "target.h"
+#include "commander.h"
 #include "cmsis_dap.h"
 #include "dap.h"
 #include "log.h"

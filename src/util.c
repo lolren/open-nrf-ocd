@@ -64,6 +64,17 @@ char *nrf_ocd_strndup(const char *s, size_t n) {
     return r;
 }
 
+size_t nrf_ocd_str_copy(char *dst, size_t dst_size, const char *src) {
+    size_t src_len = src ? strlen(src) : 0;
+    if (!dst || dst_size == 0) return src_len;
+
+    size_t copy_len = src_len;
+    if (copy_len >= dst_size) copy_len = dst_size - 1;
+    if (copy_len > 0) memmove(dst, src, copy_len);
+    dst[copy_len] = '\0';
+    return src_len;
+}
+
 int nrf_ocd_strcasecmp(const char *a, const char *b) {
     if (a == b) return 0;
     if (!a) return -1;
@@ -303,8 +314,8 @@ static int hid_serial_from_windows_com_device_id(const char *device_id,
 
         vid_pid_matches++;
         if (single_vid_pid_serial[0] == '\0' && info->serial_number[0]) {
-            strncpy(single_vid_pid_serial, info->serial_number,
-                    sizeof(single_vid_pid_serial) - 1);
+            nrf_ocd_str_copy(single_vid_pid_serial, sizeof(single_vid_pid_serial),
+                             info->serial_number);
         }
 
         if (stem[0] && strstr(path_lower, stem) && info->serial_number[0]) {

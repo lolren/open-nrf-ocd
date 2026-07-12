@@ -11,6 +11,7 @@
  * the macOS / Windows paths expose.
  */
 #include "hid.h"
+#include "hid_descriptor.h"
 #include "log.h"
 #include "util.h"
 
@@ -64,83 +65,13 @@ static char *read_sysfs_file(const char *path, char *out, size_t out_size) {
     return out;
 }
 
-/* Parse the HID report descriptor to find the report size. We need the
- * INPUT report length in bytes. We do a hand-rolled parse: walk items,
- * handling the GLOBAL / LOCAL / MAIN tag classes. */
-static int parse_report_size(const uint8_t *desc, size_t desc_len) {
-    int report_size = -1;
-    int report_count = 0;
-    int report_size_bits = 0;
-    /* State: collection stack / usage page / usage / report id. */
-    int in_input = 0;
-    int collection_depth = 0;
-    int usage_page = 0;
-    /* MAIN item tag 0x8 = Input, 0x9 = Output, 0xA = Feature, 0xB = Collection,
-     * 0xC = EndCollection. */
-    for (size_t i = 0; i < desc_len;) {
-        uint8_t b = desc[i];
-        if (b == 0xFE) { /* Long item prefix; skip. */
-            uint8_t len = desc[i+1];
-            i += 3 + len;
-            continue;
-        }
-        uint8_t size = b & 0x03;
-        uint8_t tag  = (b >> 2) & 0x0F;
-        uint32_t val = 0;
-        if (size == 3) size = 4;
-        for (uint8_t k = 0; k < size; k++) val |= (uint32_t)desc[i+1+k] << (8*k);
-        i += 1 + size;
-        if (tag == 0x8) { /* Input */
-            in_input = 1;
-            int cnt   = (int)((val >> 0) & 0x03);
-            int sz    = (int)((val >> 4) & 0x03);
-            if (cnt == 3) cnt = 4; /* 4 means "N" encoded in next byte? actually, see HID spec */
-            /* In HID, 0x03 means "N follows". For simplicity treat it as 1. */
-            if (cnt == 3) {
-                /* val is 32-bit but the actual count is in the next byte
-                 * (which we already consumed). Skip. */
-                report_count = 1;
-            } else {
-                report_count = cnt + 1;
-            }
-            if (sz == 3) {
-                report_size_bits = 32; /* 4 bytes per element */
-            } else {
-                report_size_bits = (sz + 1) * 8;
-            }
-        } else if (tag == 0x9 || tag == 0xA) { /* Output/Feature */
-            in_input = 0;
-        } else if (tag == 0xB) { /* Collection */
-            collection_depth++;
-            in_input = 0;
-        } else if (tag == 0xC) { /* EndCollection */
-            if (collection_depth > 0) collection_depth--;
-            in_input = 0;
-        } else if (tag == 0x0) { /* Usage Page */
-            usage_page = (int)val;
-        } else if (tag == 0x4) { /* Usage Page (local) - rare. */
-            usage_page = (int)val;
-        } else if (tag == 0xA) { /* push */
-        } else if (tag == 0xC) { /* pop */
-        }
-        if (in_input && report_size_bits > 0 && collection_depth == 0) {
-            int total_bits = report_count * report_size_bits;
-            int total_bytes = (total_bits + 7) / 8;
-            if (report_size < 0 || total_bytes > report_size) {
-                report_size = total_bytes;
-            }
-        }
-    }
-    return report_size > 0 ? report_size : 64;
-}
-
 static int probe_report_size(int fd) {
     struct hidraw_report_descriptor rpt;
     rpt.size = HID_MAX_DESCRIPTOR_SIZE;
     if (ioctl(fd, HIDRAW_IOCTL_GET_REPORT_DESC, &rpt) < 0) {
         return 64;
     }
-    return parse_report_size(rpt.value, rpt.size);
+    return hid_input_report_size(rpt.value, rpt.size, 64);
 }
 
 /* ----- Public API ---------------------------------------------------------- */
@@ -189,8 +120,7 @@ static int build_entry(const char *hidraw_name, hid_device_info_t *out) {
     /* Walk up to find the USB device (with idVendor / idProduct). The
      * chain is HID device -> USB interface -> USB device. */
     char cur[512];
-    strncpy(cur, abs_hid, sizeof(cur) - 1);
-    cur[sizeof(cur) - 1] = '\0';
+    nrf_ocd_str_copy(cur, sizeof(cur), abs_hid);
     bool found = false;
     /* Bound the search to a few levels. */
     for (int depth = 0; depth < 8; depth++) {
@@ -233,7 +163,7 @@ static int build_entry(const char *hidraw_name, hid_device_info_t *out) {
      * interface. The HID device's parent is the interface, whose parent
      * is the USB device. */
     char usb_dev[512] = {0};
-    strncpy(usb_dev, abs_hid, sizeof(usb_dev) - 1);
+    nrf_ocd_str_copy(usb_dev, sizeof(usb_dev), abs_hid);
     for (int i = 0; i < 2; i++) {
         char *slash = strrchr(usb_dev, '/');
         if (!slash || slash == usb_dev) break;
@@ -251,7 +181,7 @@ static int build_entry(const char *hidraw_name, hid_device_info_t *out) {
     /* Interface number. */
     char intfpath[768];
     char intf_dir[512] = {0};
-    strncpy(intf_dir, abs_hid, sizeof(intf_dir) - 1);
+    nrf_ocd_str_copy(intf_dir, sizeof(intf_dir), abs_hid);
     {
         char *slash = strrchr(intf_dir, '/');
         if (slash && slash != intf_dir) *slash = '\0';
@@ -392,7 +322,7 @@ hid_device_t *hid_open_path(const char *path) {
         return NULL;
     }
     dev->fd = fd;
-    strncpy(dev->path, path, sizeof(dev->path) - 1);
+    nrf_ocd_str_copy(dev->path, sizeof(dev->path), path);
     dev->report_size = probe_report_size(fd);
 
     struct hidraw_devinfo info;
@@ -410,7 +340,7 @@ hid_device_t *hid_open_path(const char *path) {
              strrchr(path, '/') ? strrchr(path, '/') + 1 : path);
     char sbuf[64] = {0};
     if (read_sysfs_file(pth, sbuf, sizeof(sbuf))) {
-        strncpy(dev->serial, sbuf, sizeof(dev->serial) - 1);
+        nrf_ocd_str_copy(dev->serial, sizeof(dev->serial), sbuf);
     }
     return dev;
 }

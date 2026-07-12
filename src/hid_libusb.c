@@ -1,4 +1,14 @@
-/* hid_libusb.c - libusb-1.0 backend for CMSIS-DAP probes.
+/* Copyright (c) 2019-2021, 2025 Arm Limited
+ * Copyright (c) 2021 mentha
+ * Copyright (c) 2021-2023 Chris Reed
+ * Copyright (c) 2025 Lars Häring
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Adapted for nRF OCD in 2026: pyOCD's CMSIS-DAP v2 pyUSB endpoint,
+ * transfer, flush, and zero-length-packet behavior was translated into this C
+ * libusb backend. See LICENSES/Apache-2.0.txt.
+ *
+ * hid_libusb.c - libusb-1.0 backend for CMSIS-DAP probes.
  *
  * This is the bulk-endpoint (CMSIS-DAP v2) alternative to hidraw. The
  * Seeed XIAO nRF54 board (and several other recent DAPLink boards) report
@@ -361,7 +371,7 @@ hid_device_t *hid_open_path(const char *path) {
     d->packet_size = NRF_OCD_DAP_PACKET_SIZE;
     d->interface_number = iface;
     d->report_size = 64;
-    strncpy(d->path, path, sizeof(d->path) - 1);
+    nrf_ocd_str_copy(d->path, sizeof(d->path), path);
 
     struct libusb_device_descriptor desc;
     if (libusb_get_device_descriptor(dev, &desc) == 0) {
@@ -370,7 +380,7 @@ hid_device_t *hid_open_path(const char *path) {
         unsigned char buf[256];
         if (libusb_get_string_descriptor_ascii(h, desc.iSerialNumber,
                                                 buf, sizeof(buf)) > 0) {
-            strncpy(d->serial, (const char *)buf, sizeof(d->serial) - 1);
+            nrf_ocd_str_copy(d->serial, sizeof(d->serial), (const char *)buf);
         }
     }
     read_sysfs_attr(dev, "serial", d->serial, sizeof(d->serial));

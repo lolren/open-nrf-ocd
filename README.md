@@ -1,8 +1,10 @@
 # nrf_ocd — C reimplementation of pyOCD for nRF54L15 / nRF54LM20A
 
-`nrf_ocd` is a from-scratch C reimplementation of pyOCD targeted at the
+`nrf_ocd` is a compact C implementation of CMSIS-DAP programming targeted at the
 Seeed XIAO nRF54L15 (`VID=0x2886 PID=0x0066`) and Seeed XIAO nRF54LM20A
-(`VID=0x2886 PID=0x0068`) boards. It supports Linux, macOS and Windows.
+(`VID=0x2886 PID=0x0068`) boards. Its nRF54L target, flash-algorithm, and
+CMSIS-DAP v2 USB implementations include attributed adaptations from pyOCD. It
+supports Linux, macOS, and Windows.
 
 ## Status
 
@@ -161,7 +163,7 @@ Install the core and use **Tools → Upload Method → nRF OCD (Native)**
 to flash via nrf_ocd without any Python dependency.
 
 ```bash
-arduino-cli core update-index && arduino-cli core install nrf54l15clean:nrf54l15clean@0.9.194
+arduino-cli core update-index && arduino-cli core install nrf54l15clean:nrf54l15clean@1.0.0
 nrf_ocd -p /dev/ttyACM0 -t nrf54lm20a -e chip -R --no-verify load sketch.hex
 ```
 
@@ -174,3 +176,34 @@ nrf_ocd -p /dev/ttyACM0 -t nrf54lm20a -e chip -R --no-verify load sketch.hex
 - **DAP_TransferBlock on HID**: The SAMD11 USB bridge truncates HID
   responses to 63 bytes. The bulk backend (USE_LIBUSB=1) avoids this
   issue. When using HID, the code tolerates truncated responses.
+
+## License
+
+Project-owned source is available under the [MIT License](LICENSE). The target,
+flash-algorithm, and libusb transport files identified in
+[Third-Party Notices](THIRD_PARTY_NOTICES.md) retain pyOCD material under
+Apache-2.0. Component-specific terms take precedence over the project license.
+
+## Release Compliance
+
+Linux x86-64 release binaries use a statically linked libusb `1.0.27` and are
+therefore not MIT-only artifacts. Releases that contain that binary must also
+provide the exact libusb corresponding source, LGPL-2.1 text, relink
+instructions, application source, and checksums. macOS, Windows, and Linux ARM
+builds use native HID/WinUSB unless their release notes state otherwise.
+
+See the release assets and [Third-Party Notices](THIRD_PARTY_NOTICES.md) before
+redistributing a binary.
+
+Maintainers can generate the corrective `v0.3.3` source and relink bundle with:
+
+```sh
+./scripts/create_v0.3.3_compliance_bundle.sh
+```
+
+## Support The Project
+
+If nRF OCD saves you development time, please consider supporting its ongoing
+maintenance, hardware testing, and release work.
+
+<a href="https://buymeacoffee.com/lolren"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="50"></a>

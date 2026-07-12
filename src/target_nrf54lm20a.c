@@ -1,4 +1,14 @@
-/* target_nrf54lm20a.c - nRF54LM20A target implementation.
+/* Copyright (c) 2006-2013 Arm Limited
+ * Copyright (c) 2019 Monadnock Systems Ltd.
+ * Copyright (c) 2024 Nordic Semiconductor ASA
+ * Copyright (c) 2025 StarSphere. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Adapted for nRF OCD in 2026: pyOCD's nRF54L family and nRF54LM20A target,
+ * memory-map, flash-controller, and protection behavior were translated into
+ * this C target implementation. See LICENSES/Apache-2.0.txt.
+ *
+ * target_nrf54lm20a.c - nRF54LM20A target implementation.
  *
  * Same architecture as nRF54L15 but with a different flash controller
  * (RRAMC at 0x5004E000 vs PFU at 0x5004B000) and a different memory map.
@@ -41,24 +51,6 @@
 #define RRAMC_CONFIG_WEN    0x1
 #define RRAMC_CONFIG_EEN    0x2
 #define RRAMC_CONFIG_REN    0x0
-
-static nrf_ocd_status_t rramc_wait_ready(target_t *t, uint32_t timeout_ms) {
-    uint64_t deadline = nrf_ocd_monotonic_ms() + timeout_ms;
-    while (nrf_ocd_monotonic_ms() < deadline) {
-        uint32_t v;
-        nrf_ocd_status_t st = target_mem_read_u32(t, RRAMC_READY, &v);
-        if (st != NRF_OCD_OK) return st;
-        if (v & 0x1) return NRF_OCD_OK;
-        nrf_ocd_sleep_ms(1);
-    }
-    return NRF_OCD_ERR_TIMEOUT;
-}
-
-static nrf_ocd_status_t rramc_config(target_t *t, uint32_t mode) {
-    nrf_ocd_status_t st = rramc_wait_ready(t, 1000);
-    if (st != NRF_OCD_OK) return st;
-    return target_mem_write_u32(t, RRAMC_CONFIG, mode);
-}
 
 /* The init / security / reset / halt / resume code is identical to
  * nRF54L15. We delegate to those implementations to avoid duplicating

@@ -1,4 +1,13 @@
-/* flash_algo_nrf54l.c - Flash algorithm for nRF54L family.
+/* Copyright (c) 2010-2023 Nordic Semiconductor ASA. All rights reserved.
+ * Copyright (c) 2025 StarSphere. All rights reserved.
+ * Copyright (c) 2026 Arm Limited
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Adapted for nRF OCD in 2026: the pyOCD nRF54L15 and nRF54LM20A
+ * flash-algorithm data and execution model were translated into the C target
+ * interface used here. See LICENSES/Apache-2.0.txt.
+ *
+ * flash_algo_nrf54l.c - Flash algorithm for nRF54L family.
  *
  * Implements flash programming by loading the position-independent flash
  * algorithm into RAM and executing it via core register manipulation,
@@ -261,9 +270,10 @@ nrf_ocd_status_t flash_algo_wait_halt(target_t *t, uint32_t timeout_ms) {
 
 /* Call a flash algorithm function and wait for completion.
  * This matches pyOCD's _call_function_and_wait. */
-nrf_ocd_status_t flash_algo_call_function(target_t *t, const flash_algo_t *algo,
-                                           uint32_t pc, uint32_t r0, uint32_t r1, uint32_t r2,
-                                           bool init, uint32_t timeout_ms, uint32_t *result) {
+static nrf_ocd_status_t flash_algo_call_function(target_t *t, const flash_algo_t *algo,
+                                                  uint32_t pc, uint32_t r0, uint32_t r1,
+                                                  uint32_t r2, bool init,
+                                                  uint32_t timeout_ms, uint32_t *result) {
     /* Build register list: PC, R0-R3, R9 (if init), SP (if init), XPSR (if init), LR. */
     uint8_t regs[8];
     uint32_t vals[8];
