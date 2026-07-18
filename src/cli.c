@@ -218,13 +218,22 @@ static int cmd_load(cli_ctx_t *ctx, int argc, char **argv) {
         target_close(&t);
         return 1;
     }
+    bool reset_succeeded = false;
     if (ctx->reset_after && !ctx->no_reset) {
         if (t.ops && t.ops->reset) {
             st = t.ops->reset(&t, TARGET_RESET_DEFAULT);
-            if (st != NRF_OCD_OK) LOG_WARNING("Reset failed: %s", nrf_ocd_strerror(st));
+            if (st != NRF_OCD_OK) {
+                LOG_WARNING("Reset failed: %s", nrf_ocd_strerror(st));
+            } else {
+                reset_succeeded = true;
+            }
         }
     }
-    target_close(&t);
+    if (reset_succeeded) {
+        target_close_after_reset(&t);
+    } else {
+        target_close(&t);
+    }
     printf("  Upload complete\n");
     return 0;
 }
@@ -252,6 +261,7 @@ static int cmd_reset(cli_ctx_t *ctx) {
     target_t t;
     nrf_ocd_status_t st = open_target(ctx, &t);
     if (st != NRF_OCD_OK) return 1;
+    bool reset_succeeded = false;
     if (t.ops && t.ops->reset) {
         st = t.ops->reset(&t, ctx->halt ? TARGET_RESET_HALT : TARGET_RESET_DEFAULT);
         if (st != NRF_OCD_OK) {
@@ -259,8 +269,13 @@ static int cmd_reset(cli_ctx_t *ctx) {
             target_close(&t);
             return 1;
         }
+        reset_succeeded = true;
     }
-    target_close(&t);
+    if (reset_succeeded) {
+        target_close_after_reset(&t);
+    } else {
+        target_close(&t);
+    }
     printf("  Target reset\n");
     return 0;
 }

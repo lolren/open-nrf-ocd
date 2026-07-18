@@ -28,12 +28,24 @@ nrf_ocd_status_t target_open(target_t *t, hid_device_t *dev, target_type_t type)
     return NRF_OCD_OK;
 }
 
-void target_close(target_t *t) {
+static void target_close_impl(target_t *t, bool disconnect_dap) {
     if (!t) return;
     hid_device_t *dev = t->dap.dev;
-    cmsis_dap_close(&t->dap);
+    if (disconnect_dap) {
+        cmsis_dap_close(&t->dap);
+    } else {
+        cmsis_dap_close_transport_only(&t->dap);
+    }
     if (dev) hid_close(dev);
     memset(t, 0, sizeof(*t));
+}
+
+void target_close(target_t *t) {
+    target_close_impl(t, true);
+}
+
+void target_close_after_reset(target_t *t) {
+    target_close_impl(t, false);
 }
 
 nrf_ocd_status_t target_init(target_t *t) {

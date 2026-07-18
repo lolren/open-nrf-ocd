@@ -106,6 +106,10 @@ typedef struct {
 /* ---- Connection / info ---------------------------------------------------- */
 nrf_ocd_status_t cmsis_dap_open(cmsis_dap_t *dap, hid_device_t *dev);
 void             cmsis_dap_close(cmsis_dap_t *dap);
+/* Drop local CMSIS-DAP state without sending DAP_Disconnect. Use only after
+ * an operation such as target reset may have invalidated or re-enumerated the
+ * USB transport; the caller still owns and closes the HID handle. */
+void             cmsis_dap_close_transport_only(cmsis_dap_t *dap);
 const char      *cmsis_dap_vendor(cmsis_dap_t *dap);
 const char      *cmsis_dap_product(cmsis_dap_t *dap);
 const char      *cmsis_dap_serial(cmsis_dap_t *dap);

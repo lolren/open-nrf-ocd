@@ -23,7 +23,7 @@ extern "C" {
 
 /* Library version. Bumped when behaviour changes. */
 #ifndef NRF_OCD_VERSION
-#define NRF_OCD_VERSION "0.3.3"
+#define NRF_OCD_VERSION "0.3.5"
 #endif
 
 /* Common status codes used throughout the codebase. */

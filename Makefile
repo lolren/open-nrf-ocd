@@ -27,7 +27,7 @@ TARGET_OS := $(OS)
 USE_LIBUSB ?= 0
 ZIG ?= 0
 STATIC ?= 0
-VERSION ?= 0.3.4
+VERSION ?= 0.3.5
 ifeq ($(ZIG),1)
     # Zig cross-compilation targeting glibc 2.17
     CC := zig cc -target x86_64-linux-gnu.2.17
@@ -183,7 +183,8 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 
 # ----- Tests ------------------------------------------------------------------
 TEST_BINS := $(BIN_DIR)/test_hex$(BIN_EXT) $(BIN_DIR)/test_elf$(BIN_EXT) \
-             $(BIN_DIR)/test_target$(BIN_EXT) $(BIN_DIR)/test_hid_descriptor$(BIN_EXT)
+             $(BIN_DIR)/test_target$(BIN_EXT) $(BIN_DIR)/test_target_close$(BIN_EXT) \
+             $(BIN_DIR)/test_hid_descriptor$(BIN_EXT)
 
 .PHONY: test
 test: $(TEST_BINS) $(APP)
@@ -193,6 +194,8 @@ test: $(TEST_BINS) $(APP)
 	$(BIN_DIR)/test_elf
 	@echo "=== Running test_target ==="
 	$(BIN_DIR)/test_target
+	@echo "=== Running test_target_close ==="
+	$(BIN_DIR)/test_target_close
 	@echo "=== Running test_hid_descriptor ==="
 	$(BIN_DIR)/test_hid_descriptor
 
@@ -207,6 +210,10 @@ $(BIN_DIR)/test_elf$(BIN_EXT): $(TEST_DIR)/test_elf.c $(LIB)
 $(BIN_DIR)/test_target$(BIN_EXT): $(TEST_DIR)/test_target.c $(LIB)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/test_target.c $(LIB) $(LDLIBS)
+
+$(BIN_DIR)/test_target_close$(BIN_EXT): $(TEST_DIR)/test_target_close.c $(SRC_DIR)/target.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/test_target_close.c $(SRC_DIR)/target.c
 
 $(BIN_DIR)/test_hid_descriptor$(BIN_EXT): $(TEST_DIR)/test_hid_descriptor.c $(LIB)
 	@mkdir -p $(@D)

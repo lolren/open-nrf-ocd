@@ -211,6 +211,14 @@ void cmsis_dap_close(cmsis_dap_t *dap) {
     memset(dap, 0, sizeof(*dap));
 }
 
+void cmsis_dap_close_transport_only(cmsis_dap_t *dap) {
+    if (!dap) return;
+    /* A successful target reset can make an onboard probe re-enumerate before
+     * teardown. Do not issue another protocol command through a stale handle;
+     * target_close_after_reset() still closes that handle immediately. */
+    memset(dap, 0, sizeof(*dap));
+}
+
 bool cmsis_dap_is_v2(const cmsis_dap_t *dap) { return dap ? dap->is_v2 : false; }
 
 int cmsis_dap_packet_count(const cmsis_dap_t *dap) { return dap ? dap->packet_count : 0; }
