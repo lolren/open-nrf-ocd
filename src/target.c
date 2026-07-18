@@ -34,7 +34,7 @@ static void target_close_impl(target_t *t, bool disconnect_dap) {
     if (disconnect_dap) {
         cmsis_dap_close(&t->dap);
     } else {
-        cmsis_dap_close_transport_only(&t->dap);
+        cmsis_dap_close_after_reset(&t->dap);
     }
     if (dev) hid_close(dev);
     memset(t, 0, sizeof(*t));

@@ -14,9 +14,9 @@
  *   - hid_open_path() opens a specific device node / path.
  *   - hid_read() / hid_write() are blocking with a configurable timeout.
  *
- * CMSIS-DAP v1 reports have report ID 0 (so the first byte of every HID
- * report is the command id). v2 reports are 64 bytes with the command byte
- * at offset 0 and a 16-bit length prefix at offset 1..2 little-endian.
+ * CMSIS-DAP v1 reports have report ID 0. CMSIS-DAP v2 bulk sends the command
+ * byte at offset 0 followed directly by command data, with no report ID,
+ * padding, or length prefix.
  * The HID report length is the negotiated INPUT/OUTPUT report length from
  * the OS; nrf_ocd assumes the standard 64-byte HID report unless the OS
  * tells us otherwise.

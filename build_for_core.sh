@@ -14,7 +14,7 @@ LIBUSB_URL="https://github.com/libusb/libusb/releases/download/v${LIBUSB_VER}/li
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/nrf_ocd"
 LIBUSB_ARCHIVE="${LIBUSB_ARCHIVE:-$CACHE_DIR/libusb-${LIBUSB_VER}.tar.bz2}"
 ZIG_BIN="${ZIG:-zig}"
-VERSION="${VERSION:-0.3.5}"
+VERSION="${VERSION:-0.3.6}"
 
 mkdir -p "$(dirname "$LIBUSB_ARCHIVE")"
 if [ ! -f "$LIBUSB_ARCHIVE" ]; then

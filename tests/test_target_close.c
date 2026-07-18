@@ -11,7 +11,7 @@
 
 static int failures = 0;
 static int graceful_close_calls = 0;
-static int transport_close_calls = 0;
+static int post_reset_close_calls = 0;
 static int hid_close_calls = 0;
 static hid_device_t *last_closed_device = NULL;
 
@@ -36,8 +36,8 @@ void cmsis_dap_close(cmsis_dap_t *dap) {
     memset(dap, 0, sizeof(*dap));
 }
 
-void cmsis_dap_close_transport_only(cmsis_dap_t *dap) {
-    transport_close_calls++;
+void cmsis_dap_close_after_reset(cmsis_dap_t *dap) {
+    post_reset_close_calls++;
     memset(dap, 0, sizeof(*dap));
 }
 
@@ -80,7 +80,7 @@ int nrf_ocd_strcasecmp(const char *a, const char *b) {
 
 static void reset_observation(void) {
     graceful_close_calls = 0;
-    transport_close_calls = 0;
+    post_reset_close_calls = 0;
     hid_close_calls = 0;
     last_closed_device = NULL;
 }
@@ -102,7 +102,7 @@ static void test_graceful_close(void) {
     target_close(&target);
 
     ASSERT(graceful_close_calls == 1);
-    ASSERT(transport_close_calls == 0);
+    ASSERT(post_reset_close_calls == 0);
     ASSERT(hid_close_calls == 1);
     ASSERT(last_closed_device == device);
     assert_target_cleared(&target);
@@ -119,7 +119,7 @@ static void test_post_reset_transport_close(void) {
     target_close_after_reset(&target);
 
     ASSERT(graceful_close_calls == 0);
-    ASSERT(transport_close_calls == 1);
+    ASSERT(post_reset_close_calls == 1);
     ASSERT(hid_close_calls == 1);
     ASSERT(last_closed_device == device);
     assert_target_cleared(&target);
@@ -131,7 +131,7 @@ static void test_null_close(void) {
     target_close(NULL);
     target_close_after_reset(NULL);
     ASSERT(graceful_close_calls == 0);
-    ASSERT(transport_close_calls == 0);
+    ASSERT(post_reset_close_calls == 0);
     ASSERT(hid_close_calls == 0);
     printf("test_null_close: OK\n");
 }

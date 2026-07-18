@@ -64,8 +64,8 @@ struct target_ops {
 /* Public API used by the rest of the program. */
 nrf_ocd_status_t target_open(target_t *t, hid_device_t *dev, target_type_t type);
 void             target_close(target_t *t);
-/* Close an already-reset target without sending a late DAP_Disconnect over a
- * USB transport that may have re-enumerated. */
+/* Close an already-reset target with a single quiet DAP_Disconnect attempt.
+ * A stale/re-enumerated USB transport is ignored during this final teardown. */
 void             target_close_after_reset(target_t *t);
 
 /* Re-run the init sequence for the active target. This must be called

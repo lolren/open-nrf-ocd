@@ -23,6 +23,7 @@
 
 #define CMSIS_DAP_DEFAULT_TIMEOUT_MS 2000
 #define CMSIS_DAP_BULK_TIMEOUT_MS 10000
+#define CMSIS_DAP_POST_RESET_TIMEOUT_MS 500
 
 /* ---- Low-level v1 / v2 report helpers ------------------------------------ */
 static void prepare_request(cmsis_dap_t *dap) {
@@ -211,11 +212,51 @@ void cmsis_dap_close(cmsis_dap_t *dap) {
     memset(dap, 0, sizeof(*dap));
 }
 
-void cmsis_dap_close_transport_only(cmsis_dap_t *dap) {
+static nrf_ocd_status_t disconnect_quiet_once(cmsis_dap_t *dap) {
+    if (!dap || !dap->dev) return NRF_OCD_ERR_INVALID_ARG;
+
+    const uint8_t command = DAP_CMD_DISCONNECT;
+    nrf_ocd_status_t st;
+    if (dap->is_bulk) {
+        st = hid_write(dap->dev, &command, 1,
+                       CMSIS_DAP_POST_RESET_TIMEOUT_MS);
+    } else {
+        uint8_t report[NRF_OCD_HID_REPORT_SIZE] = {0};
+        int report_size = dap->report_size > 0 ? dap->report_size : 64;
+        if (report_size > (int)sizeof(report)) {
+            return NRF_OCD_ERR_PROTOCOL;
+        }
+        report[1] = command;
+        st = hid_write(dap->dev, report, (size_t)report_size,
+                       CMSIS_DAP_POST_RESET_TIMEOUT_MS);
+    }
+    if (st != NRF_OCD_OK) return st;
+
+    uint8_t response[NRF_OCD_HID_REPORT_SIZE] = {0};
+    size_t got = 0;
+    st = hid_read(dap->dev, response, sizeof(response), &got,
+                  CMSIS_DAP_POST_RESET_TIMEOUT_MS);
+    if (st != NRF_OCD_OK) return st;
+
+    /* Bulk replies start with the command. HID backends may retain or strip
+     * the leading report ID, so accept both standards-compliant layouts. */
+    if (got >= 2 && response[0] == command && response[1] == DAP_OK) {
+        return NRF_OCD_OK;
+    }
+    if (got >= 3 && response[0] == 0 && response[1] == command &&
+        response[2] == DAP_OK) {
+        return NRF_OCD_OK;
+    }
+    return NRF_OCD_ERR_PROTOCOL;
+}
+
+void cmsis_dap_close_after_reset(cmsis_dap_t *dap) {
     if (!dap) return;
-    /* A successful target reset can make an onboard probe re-enumerate before
-     * teardown. Do not issue another protocol command through a stale handle;
-     * target_close_after_reset() still closes that handle immediately. */
+    if (dap->dev) {
+        /* Reset can invalidate the probe handle. Do not retry, flush, or emit
+         * an error for this final best-effort port-off operation. */
+        (void)disconnect_quiet_once(dap);
+    }
     memset(dap, 0, sizeof(*dap));
 }
 
@@ -273,8 +314,18 @@ nrf_ocd_status_t cmsis_dap_disconnect(cmsis_dap_t *dap) {
     dap->cmd_buf[0] = DAP_CMD_DISCONNECT;
     nrf_ocd_status_t st = send_recv(dap, dap->cmd_buf, 1, 1);
     if (st != NRF_OCD_OK) return st;
-    if (dap->rsp_buf[0] != DAP_OK) return NRF_OCD_ERR_PROTOCOL;
-    return NRF_OCD_OK;
+    if (dap->is_bulk) {
+        return dap->rsp_buf[0] == DAP_OK ? NRF_OCD_OK
+                                         : NRF_OCD_ERR_PROTOCOL;
+    }
+    /* Depending on the HID backend, send_recv() leaves either the command
+     * echo followed by status, or only status after stripping a report ID. */
+    if (dap->rsp_buf[0] == DAP_CMD_DISCONNECT) {
+        return dap->rsp_buf[1] == DAP_OK ? NRF_OCD_OK
+                                         : NRF_OCD_ERR_PROTOCOL;
+    }
+    return dap->rsp_buf[0] == DAP_OK ? NRF_OCD_OK
+                                     : NRF_OCD_ERR_PROTOCOL;
 }
 
 nrf_ocd_status_t cmsis_dap_swj_clock(cmsis_dap_t *dap, uint32_t hz) {
@@ -369,6 +420,16 @@ nrf_ocd_status_t cmsis_dap_swd_sequence(cmsis_dap_t *dap, const uint8_t *seq_inf
 }
 
 /* ---- Transfer ------------------------------------------------------------ */
+static uint8_t *transfer_response(cmsis_dap_t *dap) {
+    uint8_t *rsp = dap->rsp_buf;
+    if (!dap->is_bulk && rsp[0] == DAP_CMD_TRANSFER) {
+        /* Some HID backends retain the command echo after the report ID is
+         * stripped; bulk and other HID backends start at transfer count. */
+        rsp++;
+    }
+    return rsp;
+}
+
 nrf_ocd_status_t cmsis_dap_transfer_configure(cmsis_dap_t *dap, uint8_t idle_cycles,
                                               uint16_t wait_retry, uint16_t match_retry) {
     if (!dap) return NRF_OCD_ERR_INVALID_ARG;
@@ -427,11 +488,7 @@ nrf_ocd_status_t cmsis_dap_transfer(cmsis_dap_t *dap, dap_dp_ap_t dp_ap,
      * For HID: rsp_buf = [cmd echo, count, ACK, data...]
      * For bulk: rsp_buf = [count, ACK, data...] (cmd echo already stripped)
      * We need to handle both cases. */
-    uint8_t *rsp = dap->rsp_buf;
-    if (!dap->is_bulk && rsp[0] == DAP_CMD_TRANSFER) {
-        /* HID path: skip cmd echo byte. */
-        rsp++;
-    }
+    uint8_t *rsp = transfer_response(dap);
     uint8_t xfer_count = rsp[0];
     uint8_t ack = rsp[1] & 0x07;
     dap->last_status = ack;
@@ -445,7 +502,8 @@ nrf_ocd_status_t cmsis_dap_transfer(cmsis_dap_t *dap, dap_dp_ap_t dp_ap,
             if (!rnw && value) { write_le32(&dap->cmd_buf[4], *value); req_len = 8; }
             st = send_recv(dap, dap->cmd_buf, req_len, expect);
             if (st != NRF_OCD_OK) return st;
-            ack = dap->rsp_buf[1] & 0x07;
+            rsp = transfer_response(dap);
+            ack = rsp[1] & 0x07;
             dap->last_status = ack;
         }
     }
@@ -465,10 +523,10 @@ nrf_ocd_status_t cmsis_dap_transfer(cmsis_dap_t *dap, dap_dp_ap_t dp_ap,
             rst = swd_line_reset(dap);
             if (rst != NRF_OCD_OK) return rst;
         }
-        /* Clear sticky errors and retry the transfer once. */
-        dap_dp_write(dap, 0x0, 0x0000001FU);
+        /* Retry the original transfer once. Do not issue DP_ABORT through
+         * cmsis_dap_transfer(): if the target still returns NO_ACK that would
+         * recursively enter this recovery path without a bound. */
         req_len = 4;
-        /* Re-send the original request. */
         prepare_request(dap);
         dap->cmd_buf[0] = DAP_CMD_TRANSFER;
         dap->cmd_buf[1] = 0;
@@ -477,9 +535,11 @@ nrf_ocd_status_t cmsis_dap_transfer(cmsis_dap_t *dap, dap_dp_ap_t dp_ap,
         if (!rnw && value) { write_le32(&dap->cmd_buf[4], *value); req_len = 8; }
         st = send_recv(dap, dap->cmd_buf, req_len, expect);
         if (st != NRF_OCD_OK) return st;
-        ack = dap->rsp_buf[1] & 0x07;
+        rsp = transfer_response(dap);
+        ack = rsp[1] & 0x07;
+        dap->last_status = ack;
         if (ack == DAP_TRANSFER_OK) {
-            if (rnw && value) *value = read_le32(&dap->rsp_buf[2]);
+            if (rnw && value) *value = read_le32(&rsp[2]);
             return NRF_OCD_OK;
         }
         if (ack == DAP_TRANSFER_FAULT) return NRF_OCD_ERR_FAULT;
@@ -487,7 +547,7 @@ nrf_ocd_status_t cmsis_dap_transfer(cmsis_dap_t *dap, dap_dp_ap_t dp_ap,
     }
     if (ack != DAP_TRANSFER_OK) return NRF_OCD_ERR_PROTOCOL;
     if (rnw && value) {
-        *value = read_le32(&dap->rsp_buf[2]);
+        *value = read_le32(&rsp[2]);
     }
     return NRF_OCD_OK;
 }

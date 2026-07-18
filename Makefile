@@ -27,7 +27,7 @@ TARGET_OS := $(OS)
 USE_LIBUSB ?= 0
 ZIG ?= 0
 STATIC ?= 0
-VERSION ?= 0.3.5
+VERSION ?= 0.3.6
 ifeq ($(ZIG),1)
     # Zig cross-compilation targeting glibc 2.17
     CC := zig cc -target x86_64-linux-gnu.2.17
@@ -184,6 +184,8 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 # ----- Tests ------------------------------------------------------------------
 TEST_BINS := $(BIN_DIR)/test_hex$(BIN_EXT) $(BIN_DIR)/test_elf$(BIN_EXT) \
              $(BIN_DIR)/test_target$(BIN_EXT) $(BIN_DIR)/test_target_close$(BIN_EXT) \
+             $(BIN_DIR)/test_cmsis_dap_close$(BIN_EXT) \
+             $(BIN_DIR)/test_cmsis_dap_transfer$(BIN_EXT) \
              $(BIN_DIR)/test_hid_descriptor$(BIN_EXT)
 
 .PHONY: test
@@ -196,6 +198,10 @@ test: $(TEST_BINS) $(APP)
 	$(BIN_DIR)/test_target
 	@echo "=== Running test_target_close ==="
 	$(BIN_DIR)/test_target_close
+	@echo "=== Running test_cmsis_dap_close ==="
+	$(BIN_DIR)/test_cmsis_dap_close
+	@echo "=== Running test_cmsis_dap_transfer ==="
+	$(BIN_DIR)/test_cmsis_dap_transfer
 	@echo "=== Running test_hid_descriptor ==="
 	$(BIN_DIR)/test_hid_descriptor
 
@@ -214,6 +220,18 @@ $(BIN_DIR)/test_target$(BIN_EXT): $(TEST_DIR)/test_target.c $(LIB)
 $(BIN_DIR)/test_target_close$(BIN_EXT): $(TEST_DIR)/test_target_close.c $(SRC_DIR)/target.c
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -o $@ $(TEST_DIR)/test_target_close.c $(SRC_DIR)/target.c
+
+$(BIN_DIR)/test_cmsis_dap_close$(BIN_EXT): $(TEST_DIR)/test_cmsis_dap_close.c $(SRC_DIR)/cmsis_dap.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -ffunction-sections -Wl,--gc-sections -o $@ \
+		$(TEST_DIR)/test_cmsis_dap_close.c $(SRC_DIR)/cmsis_dap.c \
+		$(SRC_DIR)/log.c $(SRC_DIR)/util.c
+
+$(BIN_DIR)/test_cmsis_dap_transfer$(BIN_EXT): $(TEST_DIR)/test_cmsis_dap_transfer.c $(SRC_DIR)/cmsis_dap.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -ffunction-sections -Wl,--gc-sections -o $@ \
+		$(TEST_DIR)/test_cmsis_dap_transfer.c $(SRC_DIR)/cmsis_dap.c \
+		$(SRC_DIR)/log.c $(SRC_DIR)/util.c
 
 $(BIN_DIR)/test_hid_descriptor$(BIN_EXT): $(TEST_DIR)/test_hid_descriptor.c $(LIB)
 	@mkdir -p $(@D)

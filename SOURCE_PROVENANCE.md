@@ -1,22 +1,26 @@
 # Source Provenance
 
-The `v0.3.3` release executable source baseline is Git commit
-`9e2ce3a1ba480c43cbb5f6b43a3d0acc47d83c92`. The corrective compliance
-archive is generated from that tag by
-`scripts/create_v0.3.3_compliance_bundle.sh`; post-tag executable changes on
-`main` are not copied into the archive.
+The complete executable source for `nrf_ocd` 0.3.6 is the repository tree at
+the annotated Git tag `v0.3.6`:
 
-The compliance source archive distributed beside the existing `v0.3.3` Linux
-x86-64 binaries applies redistribution-only metadata to that baseline:
+<https://github.com/lolren/open-nrf-ocd/tree/v0.3.6>
 
-- project and component license texts
-- retained pyOCD copyright and Apache-2.0 notices prepended to the four
-  pyOCD-derived C files
-- third-party and LGPL distribution guidance
-- removal of the unrelated stale `build_win` output
-- the exact upstream libusb 1.0.27 archive with SHA-256
-  `ffaa41d741a8a3bee244ac8e54a72ea05bf2879663c098c82fc5757853441575`
-- a tested Linux x86-64 relink procedure and published-asset checksums
+The release source asset is generated directly from that tag with no source
+substitution:
 
-Those changes do not alter executable C statements. They make the corresponding
-source self-describing without moving or rewriting the published `v0.3.3` tag.
+```bash
+git archive --format=tar.gz --prefix=open-nrf-ocd-v0.3.6/ \
+  -o open-nrf-ocd-v0.3.6-source.tar.gz v0.3.6
+```
+
+The repository contains the project and component license texts, retained
+pyOCD attribution on the derived C sources, third-party notices, and the
+[Linux x86-64 relink procedure](compliance/RELINK_LINUX_X86_64.md). That
+procedure accepts both the exact library archive and a modified libusb source
+tree. The corresponding unmodified libusb 1.0.27 source archive is distributed
+beside the binary and source assets with SHA-256
+`ffaa41d741a8a3bee244ac8e54a72ea05bf2879663c098c82fc5757853441575`.
+
+For historical 0.3.3 compliance reconstruction, use
+`scripts/create_v0.3.3_compliance_bundle.sh`; that script is intentionally
+specific to the older `v0.3.3` tag and is not used to create 0.3.6 sources.

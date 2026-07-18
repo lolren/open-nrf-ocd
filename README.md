@@ -195,7 +195,11 @@ builds use native HID/WinUSB unless their release notes state otherwise.
 See the release assets and [Third-Party Notices](THIRD_PARTY_NOTICES.md) before
 redistributing a binary.
 
-Maintainers can generate the corrective `v0.3.3` source and relink bundle with:
+Current Linux x86-64 releases include version-matched source and exact libusb
+source assets. To rebuild with the supplied or modified library, follow
+[the relink procedure](compliance/RELINK_LINUX_X86_64.md).
+
+Maintainers reconstructing the historical `v0.3.3` compliance bundle can use:
 
 ```sh
 ./scripts/create_v0.3.3_compliance_bundle.sh
