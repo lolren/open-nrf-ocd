@@ -1,16 +1,16 @@
 # Source Provenance
 
-The complete executable source for `nrf_ocd` 0.3.6 is the repository tree at
-the annotated Git tag `v0.3.6`:
+The complete executable source for `nrf_ocd` 0.3.7 is the repository tree at
+the annotated Git tag `v0.3.7`:
 
-<https://github.com/lolren/open-nrf-ocd/tree/v0.3.6>
+<https://github.com/lolren/open-nrf-ocd/tree/v0.3.7>
 
 The release source asset is generated directly from that tag with no source
 substitution:
 
 ```bash
-git archive --format=tar.gz --prefix=open-nrf-ocd-v0.3.6/ \
-  -o open-nrf-ocd-v0.3.6-source.tar.gz v0.3.6
+git archive --format=tar.gz --prefix=open-nrf-ocd-v0.3.7/ \
+  -o open-nrf-ocd-v0.3.7-source.tar.gz v0.3.7
 ```
 
 The repository contains the project and component license texts, retained
@@ -23,4 +23,4 @@ beside the binary and source assets with SHA-256
 
 For historical 0.3.3 compliance reconstruction, use
 `scripts/create_v0.3.3_compliance_bundle.sh`; that script is intentionally
-specific to the older `v0.3.3` tag and is not used to create 0.3.6 sources.
+specific to the older `v0.3.3` tag and is not used to create 0.3.7 sources.

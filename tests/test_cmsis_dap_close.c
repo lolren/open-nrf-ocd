@@ -86,63 +86,30 @@ static cmsis_dap_t make_dap(bool bulk, int report_size) {
     return dap;
 }
 
-static void test_bulk_success(void) {
+static void test_post_reset_bulk_is_transport_only(void) {
     reset_observation();
     cmsis_dap_t dap = make_dap(true, 64);
-    read_data[0] = DAP_CMD_DISCONNECT;
-    read_data[1] = DAP_OK;
-    read_len = 2;
 
     cmsis_dap_close_after_reset(&dap);
 
-    ASSERT(write_calls == 1);
-    ASSERT(read_calls == 1);
-    ASSERT(write_timeout == 500);
-    ASSERT(read_timeout == 500);
-    ASSERT(write_len == 1);
-    ASSERT(write_data[0] == DAP_CMD_DISCONNECT);
-    assert_dap_cleared(&dap);
-    printf("test_bulk_success: OK\n");
-}
-
-static void test_bulk_failure_is_not_retried(void) {
-    reset_observation();
-    cmsis_dap_t dap = make_dap(true, 64);
-    write_status = NRF_OCD_ERR_IO;
-
-    cmsis_dap_close_after_reset(&dap);
-
-    ASSERT(write_calls == 1);
+    ASSERT(write_calls == 0);
     ASSERT(read_calls == 0);
+    ASSERT(flush_calls == 0);
     assert_dap_cleared(&dap);
-    printf("test_bulk_failure_is_not_retried: OK\n");
+    printf("test_post_reset_bulk_is_transport_only: OK\n");
 }
 
-static void test_read_failure_is_not_retried(void) {
+static void test_post_reset_hid_is_transport_only(void) {
     reset_observation();
-    cmsis_dap_t dap = make_dap(true, 64);
-    read_status = NRF_OCD_ERR_TIMEOUT;
+    cmsis_dap_t dap = make_dap(false, 65);
 
     cmsis_dap_close_after_reset(&dap);
 
-    ASSERT(write_calls == 1);
-    ASSERT(read_calls == 1);
+    ASSERT(write_calls == 0);
+    ASSERT(read_calls == 0);
+    ASSERT(flush_calls == 0);
     assert_dap_cleared(&dap);
-    printf("test_read_failure_is_not_retried: OK\n");
-}
-
-static void test_malformed_reply_still_clears_state(void) {
-    reset_observation();
-    cmsis_dap_t dap = make_dap(true, 64);
-    read_data[0] = DAP_CMD_DISCONNECT;
-    read_len = 1;
-
-    cmsis_dap_close_after_reset(&dap);
-
-    ASSERT(write_calls == 1);
-    ASSERT(read_calls == 1);
-    assert_dap_cleared(&dap);
-    printf("test_malformed_reply_still_clears_state: OK\n");
+    printf("test_post_reset_hid_is_transport_only: OK\n");
 }
 
 static void test_null_device_only_clears_state(void) {
@@ -156,40 +123,6 @@ static void test_null_device_only_clears_state(void) {
     ASSERT(read_calls == 0);
     assert_dap_cleared(&dap);
     printf("test_null_device_only_clears_state: OK\n");
-}
-
-static void test_hid_report_id_response(void) {
-    reset_observation();
-    cmsis_dap_t dap = make_dap(false, 65);
-    read_data[0] = 0;
-    read_data[1] = DAP_CMD_DISCONNECT;
-    read_data[2] = DAP_OK;
-    read_len = 3;
-
-    cmsis_dap_close_after_reset(&dap);
-
-    ASSERT(write_calls == 1);
-    ASSERT(read_calls == 1);
-    ASSERT(write_len == 65);
-    ASSERT(write_data[0] == 0);
-    ASSERT(write_data[1] == DAP_CMD_DISCONNECT);
-    assert_dap_cleared(&dap);
-    printf("test_hid_report_id_response: OK\n");
-}
-
-static void test_hid_stripped_response(void) {
-    reset_observation();
-    cmsis_dap_t dap = make_dap(false, 64);
-    read_data[0] = DAP_CMD_DISCONNECT;
-    read_data[1] = DAP_OK;
-    read_len = 2;
-
-    cmsis_dap_close_after_reset(&dap);
-
-    ASSERT(write_calls == 1);
-    ASSERT(read_calls == 1);
-    assert_dap_cleared(&dap);
-    printf("test_hid_stripped_response: OK\n");
 }
 
 static void test_regular_bulk_disconnect(void) {
@@ -233,13 +166,9 @@ static void test_regular_hid_disconnect_without_report_id(void) {
 }
 
 int main(void) {
-    test_bulk_success();
-    test_bulk_failure_is_not_retried();
-    test_read_failure_is_not_retried();
-    test_malformed_reply_still_clears_state();
+    test_post_reset_bulk_is_transport_only();
+    test_post_reset_hid_is_transport_only();
     test_null_device_only_clears_state();
-    test_hid_report_id_response();
-    test_hid_stripped_response();
     test_regular_bulk_disconnect();
     test_regular_hid_disconnect();
     test_regular_hid_disconnect_without_report_id();

@@ -102,10 +102,9 @@ typedef struct {
 /* ---- Connection / info ---------------------------------------------------- */
 nrf_ocd_status_t cmsis_dap_open(cmsis_dap_t *dap, hid_device_t *dev);
 void             cmsis_dap_close(cmsis_dap_t *dap);
-/* Make one short, best-effort DAP_Disconnect attempt after a target reset,
- * then drop local state. The quiet attempt releases the probe's SWD port when
- * the transport survived, without turning a stale/re-enumerated USB handle
- * into a late upload error. The caller still owns and closes the HID handle. */
+/* Drop protocol state without issuing another command after target reset.
+ * The SAMD11 probe can re-enumerate at this boundary, so the caller only
+ * closes the saved USB handle. */
 void             cmsis_dap_close_after_reset(cmsis_dap_t *dap);
 const char      *cmsis_dap_vendor(cmsis_dap_t *dap);
 const char      *cmsis_dap_product(cmsis_dap_t *dap);

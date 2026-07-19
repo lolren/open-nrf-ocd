@@ -23,7 +23,6 @@
 
 #define CMSIS_DAP_DEFAULT_TIMEOUT_MS 2000
 #define CMSIS_DAP_BULK_TIMEOUT_MS 10000
-#define CMSIS_DAP_POST_RESET_TIMEOUT_MS 500
 
 /* ---- Low-level v1 / v2 report helpers ------------------------------------ */
 static void prepare_request(cmsis_dap_t *dap) {
@@ -212,51 +211,11 @@ void cmsis_dap_close(cmsis_dap_t *dap) {
     memset(dap, 0, sizeof(*dap));
 }
 
-static nrf_ocd_status_t disconnect_quiet_once(cmsis_dap_t *dap) {
-    if (!dap || !dap->dev) return NRF_OCD_ERR_INVALID_ARG;
-
-    const uint8_t command = DAP_CMD_DISCONNECT;
-    nrf_ocd_status_t st;
-    if (dap->is_bulk) {
-        st = hid_write(dap->dev, &command, 1,
-                       CMSIS_DAP_POST_RESET_TIMEOUT_MS);
-    } else {
-        uint8_t report[NRF_OCD_HID_REPORT_SIZE] = {0};
-        int report_size = dap->report_size > 0 ? dap->report_size : 64;
-        if (report_size > (int)sizeof(report)) {
-            return NRF_OCD_ERR_PROTOCOL;
-        }
-        report[1] = command;
-        st = hid_write(dap->dev, report, (size_t)report_size,
-                       CMSIS_DAP_POST_RESET_TIMEOUT_MS);
-    }
-    if (st != NRF_OCD_OK) return st;
-
-    uint8_t response[NRF_OCD_HID_REPORT_SIZE] = {0};
-    size_t got = 0;
-    st = hid_read(dap->dev, response, sizeof(response), &got,
-                  CMSIS_DAP_POST_RESET_TIMEOUT_MS);
-    if (st != NRF_OCD_OK) return st;
-
-    /* Bulk replies start with the command. HID backends may retain or strip
-     * the leading report ID, so accept both standards-compliant layouts. */
-    if (got >= 2 && response[0] == command && response[1] == DAP_OK) {
-        return NRF_OCD_OK;
-    }
-    if (got >= 3 && response[0] == 0 && response[1] == command &&
-        response[2] == DAP_OK) {
-        return NRF_OCD_OK;
-    }
-    return NRF_OCD_ERR_PROTOCOL;
-}
-
 void cmsis_dap_close_after_reset(cmsis_dap_t *dap) {
     if (!dap) return;
-    if (dap->dev) {
-        /* Reset can invalidate the probe handle. Do not retry, flush, or emit
-         * an error for this final best-effort port-off operation. */
-        (void)disconnect_quiet_once(dap);
-    }
+    /* The SAMD11 probe can re-enumerate or stop accepting commands as the
+     * target reset completes. Never send DAP_Disconnect through that possibly
+     * stale handle; the caller closes the saved USB transport immediately. */
     memset(dap, 0, sizeof(*dap));
 }
 

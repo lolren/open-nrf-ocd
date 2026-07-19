@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
-export VERSION="${VERSION:-0.3.6}"
+export VERSION="${VERSION:-0.3.7}"
 
 DIST="$ROOT/release_dist"
 rm -rf "$DIST"
