@@ -27,7 +27,7 @@ TARGET_OS := $(OS)
 USE_LIBUSB ?= 0
 ZIG ?= 0
 STATIC ?= 0
-VERSION ?= 0.3.7
+VERSION ?= 0.3.8
 ifeq ($(ZIG),1)
     # Zig cross-compilation targeting glibc 2.17
     CC := zig cc -target x86_64-linux-gnu.2.17

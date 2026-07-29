@@ -80,6 +80,11 @@ nrf_ocd_status_t target_mem_read_u32(target_t *t, uint32_t addr, uint32_t *value
 
 const char *target_type_name(target_type_t t);
 target_type_t target_type_from_string(const char *name);
+target_type_t target_type_from_onboard_probe(uint16_t vendor_id,
+                                             uint16_t product_id);
+bool target_matches_onboard_probe(target_type_t requested,
+                                  uint16_t vendor_id,
+                                  uint16_t product_id);
 
 #ifdef __cplusplus
 }

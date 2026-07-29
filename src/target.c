@@ -92,3 +92,19 @@ target_type_t target_type_from_string(const char *name) {
     if (nrf_ocd_strcasecmp(name, "nrf54lm20b") == 0)  return TARGET_NRF54LM20A;
     return TARGET_UNKNOWN;
 }
+
+target_type_t target_type_from_onboard_probe(uint16_t vendor_id,
+                                             uint16_t product_id) {
+    if (vendor_id != 0x2886U) return TARGET_UNKNOWN;
+    if (product_id == 0x0066U) return TARGET_NRF54L15;
+    if (product_id == 0x0068U) return TARGET_NRF54LM20A;
+    return TARGET_UNKNOWN;
+}
+
+bool target_matches_onboard_probe(target_type_t requested,
+                                  uint16_t vendor_id,
+                                  uint16_t product_id) {
+    target_type_t onboard =
+        target_type_from_onboard_probe(vendor_id, product_id);
+    return onboard == TARGET_UNKNOWN || onboard == requested;
+}

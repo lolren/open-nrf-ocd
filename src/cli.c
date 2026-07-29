@@ -54,12 +54,6 @@ static uint32_t parse_u32(const char *s, uint32_t dflt) {
     return (uint32_t)strtoul(s, NULL, 0);
 }
 
-static target_type_t target_from_probe_vid_pid(uint16_t vid, uint16_t pid) {
-    if (vid == 0x2886U && pid == 0x0068U) return TARGET_NRF54LM20A;
-    if (vid == 0x2886U && pid == 0x0066U) return TARGET_NRF54L15;
-    return TARGET_NRF54L15;
-}
-
 /* ----- cmd: list ---------------------------------------------------------- */
 static int cmd_list(void) {
     probe_info_t probes[32];
@@ -78,8 +72,8 @@ static int cmd_list(void) {
     for (size_t i = 0; i < n; i++) {
         printf("  %-3zu %-50s %-12s %s\n",
                i, probes[i].product, probes[i].serial,
-               target_type_name(target_from_probe_vid_pid(probes[i].vendor_id,
-                                                          probes[i].product_id)));
+               target_type_name(target_type_from_onboard_probe(
+                   probes[i].vendor_id, probes[i].product_id)));
     }
     return 0;
 }
@@ -126,6 +120,17 @@ static nrf_ocd_status_t open_target_once(cli_ctx_t *ctx, target_t *t) {
     }
     printf("  Probe: %s [%s] (%s) at %s\n",
              info.product, info.serial, info.manufacturer, info.path);
+    if (!target_matches_onboard_probe(ctx->target, info.vendor_id,
+                                      info.product_id)) {
+        target_type_t onboard = target_type_from_onboard_probe(
+            info.vendor_id, info.product_id);
+        LOG_ERROR("Selected target %s does not match the onboard %s probe "
+                  "(USB %04x:%04x); select the matching board before upload",
+                  target_type_name(ctx->target), target_type_name(onboard),
+                  info.vendor_id, info.product_id);
+        hid_close(dev);
+        return NRF_OCD_ERR_INVALID_ARG;
+    }
     st = target_open(t, dev, ctx->target);
     if (st != NRF_OCD_OK) {
         hid_close(dev);
