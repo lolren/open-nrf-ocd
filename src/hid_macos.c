@@ -71,7 +71,7 @@ static CFStringRef get_str_property(IOHIDDeviceRef dev, CFStringRef key) {
 /* HID report callback. Pushes a report into the device. */
 static void hid_report_callback(void *ctx, IOReturn result, void *sender,
                                 IOHIDReportType type, uint32_t reportID,
-                                const uint8_t *report, CFIndex reportLength) {
+                                uint8_t *report, CFIndex reportLength) {
     (void)result; (void)sender; (void)type;
     hid_device_t *dev = (hid_device_t *)ctx;
     if (!dev || reportLength <= 0 || reportLength > (CFIndex)sizeof(dev->last_report)) {
@@ -356,3 +356,5 @@ const char *hid_serial(const hid_device_t *dev)   { return dev ? dev->serial : "
 uint16_t    hid_vid(const hid_device_t *dev)      { return dev ? dev->vid : 0; }
 uint16_t    hid_pid(const hid_device_t *dev)      { return dev ? dev->pid : 0; }
 int         hid_report_size(const hid_device_t *dev) { return dev ? dev->report_size : 64; }
+void        hid_mark_bulk(hid_device_t *dev)        { (void)dev; }
+bool        hid_is_bulk(const hid_device_t *dev)   { (void)dev; return false; }
