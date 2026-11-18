@@ -106,6 +106,26 @@ Both share the same CTRL-AP-based mass-erase sequence and flash
 algorithm. The flash controller is selected automatically based on
 the target type.
 
+### External probes
+
+Any CMSIS-DAP probe works, not only the XIAO's onboard one. Probes are
+picked up by a known vendor ID or by "CMSIS-DAP" in their USB product
+string, as the CMSIS-DAP spec requires.
+
+Tested: **Flipper Zero** with the [DAP Link](https://lab.flipper.net/apps/dap_link)
+app, on macOS (HID) with an nRF54L15. Wire SWCLK to GPIO **2** (A7) and
+SWDIO to GPIO **3** (A6), plus 3V3 (9) and GND (11). Pins 10 and 12 are
+labelled SWC/SIO on the case, but that is the Flipper's own debug port;
+the app does not use them.
+
+HID is slow: about 3 kB/s programming, and readback verify of a 600 KB
+image takes around 25 minutes. Use `--no-verify` and spot-check with
+`read` instead.
+
+```sh
+nrf_ocd -t nrf54l15 -u <serial> -e chip --no-verify load firmware.hex
+```
+
 ## Architecture
 
 Flash programming uses a **flash algorithm** — position-independent ARM
