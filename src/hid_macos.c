@@ -33,6 +33,11 @@ struct hid_device {
     bool     have_report;
     uint8_t  last_report[NRF_OCD_HID_REPORT_SIZE];
     size_t   last_len;
+    /* Buffer IOKit fills before invoking hid_report_callback. */
+    uint8_t  in_buf[NRF_OCD_HID_REPORT_SIZE];
+    /* Run loop the device is scheduled on. Input reports are only
+     * delivered while this run loop runs, so hid_read pumps it. */
+    CFRunLoopRef run_loop;
 };
 
 struct hid_enumerate_handle {
@@ -71,10 +76,11 @@ static CFStringRef get_str_property(IOHIDDeviceRef dev, CFStringRef key) {
 /* HID report callback. Pushes a report into the device. */
 static void hid_report_callback(void *ctx, IOReturn result, void *sender,
                                 IOHIDReportType type, uint32_t reportID,
-                                const uint8_t *report, CFIndex reportLength) {
+                                uint8_t *report, CFIndex reportLength) {
     (void)result; (void)sender; (void)type;
     hid_device_t *dev = (hid_device_t *)ctx;
-    if (!dev || reportLength <= 0 || reportLength > (CFIndex)sizeof(dev->last_report)) {
+    if (!dev || reportLength <= 0 ||
+        reportLength + (reportID != 0) > (CFIndex)sizeof(dev->last_report)) {
         return;
     }
     pthread_mutex_lock(&dev->report_lock);
@@ -275,17 +281,17 @@ hid_device_t *hid_open_path(const char *path) {
         return NULL;
     }
     IOHIDDeviceRegisterInputReportCallback(
-        dev, (uint8_t *)d->last_report, sizeof(d->last_report),
-        hid_report_callback, d);
-    /* Schedule with the run loop. */
-    IOHIDDeviceScheduleWithRunLoop(dev, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+        dev, d->in_buf, sizeof(d->in_buf), hid_report_callback, d);
+    /* Schedule with the calling thread's run loop; hid_read runs it. */
+    d->run_loop = CFRunLoopGetCurrent();
+    IOHIDDeviceScheduleWithRunLoop(dev, d->run_loop, kCFRunLoopDefaultMode);
     return d;
 }
 
 void hid_close(hid_device_t *dev) {
     if (!dev) return;
     if (dev->device) {
-        IOHIDDeviceUnscheduleFromRunLoop(dev->device, CFRunLoopGetMain(), kCFRunLoopDefaultMode);
+        IOHIDDeviceUnscheduleFromRunLoop(dev->device, dev->run_loop, kCFRunLoopDefaultMode);
         IOHIDDeviceClose(dev->device, kIOHIDOptionsTypeNone);
         CFRelease(dev->device);
     }
@@ -296,6 +302,8 @@ void hid_close(hid_device_t *dev) {
 
 bool hid_has_report(hid_device_t *dev) {
     if (!dev) return false;
+    /* Deliver any input reports IOKit has already queued. */
+    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
     pthread_mutex_lock(&dev->report_lock);
     bool ready = dev->have_report;
     pthread_mutex_unlock(&dev->report_lock);
@@ -305,25 +313,19 @@ bool hid_has_report(hid_device_t *dev) {
 nrf_ocd_status_t hid_read(hid_device_t *dev, uint8_t *buf, size_t buf_size,
                           size_t *out_len, int timeout_ms) {
     if (!dev || !buf) return NRF_OCD_ERR_INVALID_ARG;
+    /* The report callback fires from the run loop the device is scheduled
+     * on, so run it until a report arrives or the timeout expires. */
+    CFAbsoluteTime deadline = CFAbsoluteTimeGetCurrent() + timeout_ms / 1000.0;
     pthread_mutex_lock(&dev->report_lock);
-    if (!dev->have_report) {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec  += timeout_ms / 1000;
-        ts.tv_nsec += (timeout_ms % 1000) * 1000000L;
-        if (ts.tv_nsec >= 1000000000L) {
-            ts.tv_sec  += 1;
-            ts.tv_nsec -= 1000000000L;
-        }
-        int rc = pthread_cond_timedwait(&dev->report_ready, &dev->report_lock, &ts);
-        if (rc == ETIMEDOUT) {
+    while (!dev->have_report) {
+        CFTimeInterval remaining = deadline - CFAbsoluteTimeGetCurrent();
+        if (remaining <= 0) {
             pthread_mutex_unlock(&dev->report_lock);
             return NRF_OCD_ERR_TIMEOUT;
         }
-        if (rc != 0) {
-            pthread_mutex_unlock(&dev->report_lock);
-            return NRF_OCD_ERR_IO;
-        }
+        pthread_mutex_unlock(&dev->report_lock);
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, remaining, true);
+        pthread_mutex_lock(&dev->report_lock);
     }
     size_t n = dev->last_len;
     if (n > buf_size) n = buf_size;
@@ -356,3 +358,5 @@ const char *hid_serial(const hid_device_t *dev)   { return dev ? dev->serial : "
 uint16_t    hid_vid(const hid_device_t *dev)      { return dev ? dev->vid : 0; }
 uint16_t    hid_pid(const hid_device_t *dev)      { return dev ? dev->pid : 0; }
 int         hid_report_size(const hid_device_t *dev) { return dev ? dev->report_size : 64; }
+void        hid_mark_bulk(hid_device_t *dev)        { (void)dev; }
+bool        hid_is_bulk(const hid_device_t *dev)   { (void)dev; return false; }

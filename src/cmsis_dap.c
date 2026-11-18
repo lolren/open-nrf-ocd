@@ -245,8 +245,12 @@ nrf_ocd_status_t cmsis_dap_connect(cmsis_dap_t *dap, dap_port_t port) {
             return NRF_OCD_ERR_PROTOCOL;
         }
     } else {
-        /* HID: rsp_buf[0] = cmd echo, rsp_buf[1] = status */
-        if (dap->rsp_buf[0] != DAP_CMD_CONNECT || dap->rsp_buf[1] != 1) {
+        /* Depending on the HID backend, send_recv() leaves either the
+         * command echo followed by status, or only status after stripping
+         * the echo (e.g. macOS IOKit without report IDs). */
+        bool echo = dap->rsp_buf[0] == DAP_CMD_CONNECT;
+        uint8_t status = echo ? dap->rsp_buf[1] : dap->rsp_buf[0];
+        if (status != 1) {
             LOG_ERROR("DAP_Connect: failed (echo=0x%02x status=%d)",
                       dap->rsp_buf[0], dap->rsp_buf[1]);
             return NRF_OCD_ERR_PROTOCOL;

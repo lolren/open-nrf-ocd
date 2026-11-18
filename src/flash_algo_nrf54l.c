@@ -427,6 +427,29 @@ nrf_ocd_status_t flash_algo_erase_all(target_t *t, const flash_algo_t *algo) {
 /* Program a page of flash via flash algorithm. */
 nrf_ocd_status_t flash_algo_program_page(target_t *t, const flash_algo_t *algo,
                                           uint32_t address, const uint8_t *data, size_t len) {
+    /* The RAM page buffer is written in whole words, so a partial word at
+     * either end would be dropped. Widen the range to word boundaries and
+     * fill the extra bytes with what the target already holds: RRAM has no
+     * erase-to-0xFF semantics, so padding with 0xFF could clobber data
+     * written by a neighbouring segment. */
+    uint8_t padded[4096 + 8];
+    uint32_t lead = address & 3U;
+    size_t span = (lead + len + 3U) & ~(size_t)3U;
+    if (lead != 0 || span != len) {
+        if (span > sizeof(padded)) return NRF_OCD_ERR_INVALID_ARG;
+        uint32_t base = address - lead;
+        uint32_t word;
+        nrf_ocd_status_t rst = target_mem_read_u32(t, base, &word);
+        if (rst != NRF_OCD_OK) return rst;
+        memcpy(padded, &word, 4);
+        rst = target_mem_read_u32(t, base + (uint32_t)span - 4U, &word);
+        if (rst != NRF_OCD_OK) return rst;
+        memcpy(padded + span - 4U, &word, 4);
+        memcpy(padded + lead, data, len);
+        address = base;
+        data = padded;
+        len = span;
+    }
     /* Write data to page buffer in RAM using DAP_TransferBlock.
      * This is ~13x faster than individual word writes. */
     nrf_ocd_status_t st = dap_mem_write(&t->dap, 0, algo->page_buffers[0], data, len);

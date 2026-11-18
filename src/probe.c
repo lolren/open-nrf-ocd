@@ -36,6 +36,14 @@ static bool is_known_vid(uint16_t vid) {
     return false;
 }
 
+/* The CMSIS-DAP spec requires the product string to contain "CMSIS-DAP", so
+ * accept such probes from vendors not listed above (e.g. Flipper Zero DAP
+ * Link, which uses ST's 0x0483). */
+static bool is_known_probe(const hid_device_info_t *info) {
+    return is_known_vid(info->vendor_id) ||
+           strstr(info->product_string, "CMSIS-DAP") != NULL;
+}
+
 static const hid_device_info_t *find_known_probe_by_index(unsigned index) {
     hid_enumerate_handle_t *h = hid_enumerate_start();
     if (!h) return NULL;
@@ -43,7 +51,7 @@ static const hid_device_info_t *find_known_probe_by_index(unsigned index) {
     unsigned filtered_index = 0;
     static hid_device_info_t copy;
     while ((info = hid_enumerate_next(h)) != NULL) {
-        if (!is_known_vid(info->vendor_id)) continue;
+        if (!is_known_probe(info)) continue;
         if (filtered_index++ == index) {
             copy = *info;
             hid_enumerate_free(h);
@@ -61,7 +69,7 @@ static const hid_device_info_t *find_only_known_probe(void) {
     static hid_device_info_t copy;
     unsigned count = 0;
     while ((info = hid_enumerate_next(h)) != NULL) {
-        if (!is_known_vid(info->vendor_id)) continue;
+        if (!is_known_probe(info)) continue;
         copy = *info;
         count++;
         if (count > 1) break;
@@ -77,7 +85,7 @@ nrf_ocd_status_t probe_list(probe_info_t *out, size_t max_count, size_t *out_cou
     if (!h) return NRF_OCD_ERR_IO;
     const hid_device_info_t *info;
     while ((info = hid_enumerate_next(h)) != NULL) {
-        if (!is_known_vid(info->vendor_id)) continue;
+        if (!is_known_probe(info)) continue;
         if (*out_count >= max_count) break;
         probe_info_t *p = &out[*out_count];
         p->vendor_id  = info->vendor_id;
@@ -112,7 +120,7 @@ nrf_ocd_status_t probe_open(probe_info_t *out_info, hid_device_t **out_dev,
         info = find_known_probe_by_index(index);
     }
     if (!info) return NRF_OCD_ERR_PROBE_NOT_FOUND;
-    if (!is_known_vid(info->vendor_id)) {
+    if (!is_known_probe(info)) {
         LOG_WARNING("Probe 0x%04x:0x%04x is not a known CMSIS-DAP vendor; "
                     "opening anyway.", info->vendor_id, info->product_id);
     }
